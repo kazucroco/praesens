@@ -1,0 +1,14 @@
+services:
+  praesens_db:
+    container_name: praesens_db
+    image: postgres:18
+    restart: unless-stopped
+    ports:
+      - 5432:5432
+    volumes:
+      - praesens_db_data:/var/lib/postgresql
+    environment:
+      POSTGRES_USER: praesens
+      POSTGRES_PASSWORD: praesens
+volumes:
+  praesens_db_data:
