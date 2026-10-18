@@ -39,7 +39,7 @@ class Settings:
     # Set it equal to match_threshold to turn the review band off.
     review_threshold: float = 0.35
     # A guest triggers at most one notification per cooldown window.
-    cooldown_seconds: float = 300.0
+    cooldown_seconds: float = 10.0
     # Number of consecutive processed frames a guest must match before a
     # notification fires. 1 = fire on the first match; 2-3 cuts one-frame flukes.
     confirm_frames: int = 2

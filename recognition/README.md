@@ -83,7 +83,7 @@ Scores are cosine similarity between the live face and the closest enrollment ph
 | `match_threshold` | 0.45 | At or above: a match, fires a pop-up. |
 | `review_threshold` | 0.35 | Between this and match: "review" (possible match). Set equal to `match_threshold` to turn off. |
 | `confirm_frames` | 2 | Consecutive processed frames a guest must match before a pop-up. Cuts one-frame flukes. |
-| `cooldown_seconds` | 300 | At most one pop-up per guest per window (FR-04 de-duplication). |
+| `cooldown_seconds` | 10 | At most one pop-up per guest per window (FR-04 de-duplication). |
 | `min_det_score` | 0.6 | Ignore detections the detector is unsure about. |
 | `min_face_px` | 40 | Ignore faces smaller than this (too far from the camera). |
 | `process_fps` | 5 | Recognition runs per second. The preview runs at full camera rate either way. |
