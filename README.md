@@ -13,3 +13,6 @@ These are quick and dirty instructions for getting the API server to run in your
 You can now make calls to the API server using [Postman](https://www.postman.com/) or whatever you wish.
 
 > NOTE: The API server currently expects HTTP (**NOT** HTTPS) requests. Apparently, it's possible to get this working with FastAPI directly but I think I'm probably just going to set up a Caddy server in the `compose.yaml` because it seems easier. I just haven't done it yet.
+
+## Recognition How-to
+The face recognition service lives in `recognition/` and runs alongside the API on port 8001. Install its dependencies with `pip install -r recognition/requirements.txt`, then run `fastapi run recognition/server.py --port 8001` while the API is running. It loads every user's photo from the API on startup. See `recognition/README.md` for endpoints, the dashboard WebSocket, and threshold tuning.
