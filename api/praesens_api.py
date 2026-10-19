@@ -1,4 +1,5 @@
 import os
+import shutil
 from typing import Annotated
 
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
@@ -68,6 +69,27 @@ async def enroll_user(
 
     # Returns the newly created user as the response.
     return get_user_by_id(user_id)
+
+# User deletion endpoint
+@app.delete(API_VERSION + "users/{user_id}")
+def delete_user(user_id: int):
+    dir_path = os.path.join(IMAGE_PATH, str(user_id))
+    try:
+        shutil.rmtree(dir_path)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=204,
+            detail="User does not exist"
+        )
+
+    with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                DELETE FROM users
+                WHERE id = {user_id}
+            """)
+
+    return user_id
 
 # Should return a list of all users, which will be used by the machine learning server upon startup to inload users.
 @app.get(API_VERSION + "users/")
