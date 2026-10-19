@@ -1,0 +1,5 @@
+__pycache__
+.venv
+# recognition service
+praesens_config.json
+scores.csv
