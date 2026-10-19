@@ -137,6 +137,12 @@ def get_user_by_id(user_id: int):
 
             user = cur.fetchone()
 
+            if user == None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="User does not exist"
+                )
+
             return {
                 "id": user[0],
                 "first_name": user[1],
