@@ -42,17 +42,17 @@ async def enroll_user(
             user_id = cur.fetchone()[0]
 
     # Basic validation.
-    if file.content_type != "image/png":
+    if file.content_type != "image/jpeg":
         raise HTTPException(
             status_code=400,
-            detail="Invalid file type. Please upload a PNG."
+            detail="Invalid file type. Please upload a JPEG."
         )
     
     # Create directory path on disk
     dir_path = os.path.join(IMAGE_PATH, str(user_id))
     os.makedirs(dir_path, exist_ok=True)
 
-    file_path = os.path.join(dir_path, "photo.png")
+    file_path = os.path.join(dir_path, "photo.jpg")
 
     content = await file.read()
     with open(file_path, "wb") as f:
