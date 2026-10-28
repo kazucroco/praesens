@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Praesens Guest Enrollment</title>
+<style>
+  :root {
+    --bg: #f6f5f2;
+    --surface: #ffffff;
+    --text: #1c1b19;
+    --muted: #6b6862;
+    --border: #e2dfd8;
+    --accent: #2f5d50;
+    --accent-text: #ffffff;
+    --ok: #2e7d4f;
+    --ok-bg: #e6f3eb;
+    --warn: #8a5a00;
+    --warn-bg: #fbf0d9;
+    --bad: #b3261e;
+    --bad-bg: #fbe9e7;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151514;
+      --surface: #1f1f1d;
+      --text: #ecebe8;
+      --muted: #a3a09a;
+      --border: #34332f;
+      --accent: #6fb39c;
+      --accent-text: #0f1a16;
+      --ok: #7fd1a1;
+      --ok-bg: #1d3327;
+      --warn: #f0c46b;
+      --warn-bg: #3a2f17;
+      --bad: #f2a29b;
+      --bad-bg: #3d1f1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px 20px; background: var(--surface); border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 2;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header h1 span { color: var(--muted); font-weight: 400; }
+  main {
+    max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px;
+    display: grid; grid-template-columns: 380px 1fr; gap: 20px; align-items: start;
+  }
+  @media (max-width: 820px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
+  .panel h2 { font-size: 16px; margin: 0 0 14px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 4px; }
+  input[type=text], textarea {
+    width: 100%; padding: 9px 10px; font: inherit; color: var(--text);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  }
+  textarea { resize: vertical; min-height: 70px; }
+  .field { margin-bottom: 12px; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  button {
+    font: inherit; cursor: pointer; border-radius: 8px; padding: 8px 14px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  button.danger { color: var(--bad); }
+  button.small { padding: 4px 10px; font-size: 13px; }
+  .photo-box {
+    aspect-ratio: 4 / 3; width: 100%; border-radius: 8px; overflow: hidden;
+    background: var(--bg); border: 1px dashed var(--border);
+    display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px;
+    position: relative;
+  }
+  .photo-box video, .photo-box img { width: 100%; height: 100%; object-fit: cover; }
+  .photo-box video { transform: scaleX(-1); }
+  .photo-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .hint { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
+  .notice { padding: 10px 12px; border-radius: 8px; font-size: 14px; margin-top: 12px; }
+  .notice.ok { background: var(--ok-bg); color: var(--ok); }
+  .notice.warn { background: var(--warn-bg); color: var(--warn); }
+  .notice.bad { background: var(--bad-bg); color: var(--bad); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .pill.ok { background: var(--ok-bg); color: var(--ok); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+  .pill.bad { background: var(--bad-bg); color: var(--bad); }
+  .list-head { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+  .list-head h2 { margin: 0; flex: none; }
+  .list-head input { flex: 1; }
+  .guests { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .guest { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; }
+  .guest img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--bg); display: block; }
+  .guest .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .guest .name { font-weight: 600; }
+  .guest .id { color: var(--muted); font-size: 12px; font-weight: 400; }
+  .guest .bio { color: var(--muted); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .guest .actions { display: flex; gap: 6px; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 4px; }
+  .empty { color: var(--muted); padding: 30px 0; text-align: center; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Praesens <span>Guest enrollment</span></h1>
+  <span id="recog-status" class="pill warn">Checking recognition…</span>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>New guest</h2>
+    <form id="enroll-form" autocomplete="off">
+      <div class="row">
+        <div class="field">
+          <label for="first-name">First name</label>
+          <input id="first-name" type="text" maxlength="30" required>
+        </div>
+        <div class="field">
+          <label for="last-name">Last name</label>
+          <input id="last-name" type="text" maxlength="30" required>
+        </div>
+      </div>
+      <div class="field">
+        <label for="bio">Notes for staff</label>
+        <textarea id="bio" placeholder="Room, preferences, VIP status…"></textarea>
+      </div>
+
+      <div class="field">
+        <label>Photo</label>
+        <div class="photo-box" id="photo-box">
+          <span id="photo-placeholder">No photo yet</span>
+          <video id="video" class="hidden" autoplay playsinline muted></video>
+          <img id="preview" class="hidden" alt="Guest photo preview">
+        </div>
+        <div class="photo-actions">
+          <button type="button" id="camera-btn">Use webcam</button>
+          <button type="button" id="capture-btn" class="primary hidden">Take photo</button>
+          <button type="button" id="upload-btn">Upload photo</button>
+          <input id="file-input" type="file" accept="image/*" capture="user" class="hidden">
+        </div>
+        <p class="hint">Face the camera, one person only, good light, no sunglasses.</p>
+      </div>
+
+      <button type="submit" class="primary" id="submit-btn" style="width:100%">Enroll guest</button>
+      <div id="form-notice" class="notice hidden"></div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="list-head">
+      <h2>Guests <span id="guest-count" class="id"></span></h2>
+      <input type="text" id="search" placeholder="Search by name">
+    </div>
+    <div id="guests" class="guests"></div>
+    <div id="guests-empty" class="empty hidden">No guests enrolled yet.</div>
+  </section>
+</main>
+
+<script>
+const API = "/api/v1/";
+const $ = (id) => document.getElementById(id);
+
+let photoBlob = null;   // JPEG of the current photo
+let stream = null;      // active webcam stream
+let guests = [];        // [{id, first_name, last_name, bio}]
+let enrolled = new Set();
+let recognitionOnline = false;
+
+// ---- Photo: webcam or upload, always sent as JPEG ----
+
+$("camera-btn").onclick = async () => {
+  if (stream) { stopCamera(); return; }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    notice("The webcam only works when this page is opened at localhost or over HTTPS. Use Upload photo instead.", "warn");
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 960, facingMode: "user" } });
+  } catch (e) {
+    notice("Couldn't open the webcam: " + e.message, "bad");
+    return;
+  }
+  $("video").srcObject = stream;
+  show("video"); hide("preview"); hide("photo-placeholder"); show("capture-btn");
+  $("camera-btn").textContent = "Close webcam";
+};
+
+$("capture-btn").onclick = async () => {
+  const v = $("video");
+  const c = document.createElement("canvas");
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  const ctx = c.getContext("2d");
+  // The live preview is mirrored with CSS; the saved photo is not.
+  ctx.drawImage(v, 0, 0);
+  setPhoto(await toJpeg(c));
+  stopCamera();
+};
+
+$("upload-btn").onclick = () => $("file-input").click();
+$("file-input").onchange = async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  stopCamera();
+  try {
+    const img = await loadImage(file);
+    const scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth * scale);
+    c.height = Math.round(img.naturalHeight * scale);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    setPhoto(await toJpeg(c));
+  } catch {
+    notice("That file couldn't be read as an image. Try a JPEG or PNG.", "bad");
+  }
+};
+
+function stopCamera() {
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  stream = null;
+  hide("video"); hide("capture-btn");
+  $("camera-btn").textContent = "Use webcam";
+  if (!photoBlob) show("photo-placeholder");
+}
+
+function setPhoto(blob) {
+  photoBlob = blob;
+  const img = $("preview");
+  if (img.src) URL.revokeObjectURL(img.src);
+  img.src = URL.createObjectURL(blob);
+  show("preview"); hide("photo-placeholder");
+  clearNotice();
+}
+
+function clearPhoto() {
+  photoBlob = null;
+  hide("preview"); show("photo-placeholder");
+}
+
+function toJpeg(canvas) {
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+}
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(img.src); resolve(img); };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// ---- Enroll ----
+
+$("enroll-form").onsubmit = async (e) => {
+  e.preventDefault();
+  if (!photoBlob) { notice("Take or upload a photo first.", "warn"); return; }
+
+  const form = new FormData();
+  form.append("first_name", $("first-name").value.trim());
+  form.append("last_name", $("last-name").value.trim());
+  form.append("bio", $("bio").value.trim());
+  form.append("file", photoBlob, "photo.jpg");
+
+  $("submit-btn").disabled = true;
+  $("submit-btn").textContent = "Enrolling…";
+  try {
+    const res = await fetch(API + "enroll/", { method: "POST", body: form });
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 422) {
+      notice(`Photo not accepted (${detailText(body).replace(/\.$/, "")}). Please retake it.`, "bad");
+      return;
+    }
+    if (!res.ok) {
+      notice("Enrollment failed: " + detailText(body), "bad");
+      return;
+    }
+    const name = `${body.first_name} ${body.last_name}`;
+    if (body.recognition?.status === "enrolled") {
+      notice(`${name} is enrolled and will be recognized now.`, "ok");
+    } else {
+      notice(`${name} is saved. ${body.recognition?.detail ?? ""}`, "warn");
+    }
+    $("enroll-form").reset();
+    clearPhoto();
+    await refresh();
+  } catch (err) {
+    notice("Couldn't reach the server: " + err.message, "bad");
+  } finally {
+    $("submit-btn").disabled = false;
+    $("submit-btn").textContent = "Enroll guest";
+  }
+};
+
+function detailText(body) {
+  const d = body?.detail;
+  if (!d) return "unknown error.";
+  if (typeof d === "string") return d;
+  return d.map((x) => x.msg).join("; ");
+}
+
+// ---- Guest list ----
+
+async function refresh() {
+  const [usersRes, recogRes] = await Promise.all([
+    fetch(API + "users/"),
+    fetch(API + "recognition/"),
+  ]);
+  const users = await usersRes.json();
+  const recog = await recogRes.json();
+
+  guests = Object.entries(users)
+    .map(([id, u]) => ({ id: Number(id), ...u }))
+    .sort((a, b) => b.id - a.id);
+  enrolled = new Set(recog.enrolled);
+  recognitionOnline = recog.online;
+
+  const pill = $("recog-status");
+  if (recognitionOnline) {
+    pill.className = "pill ok";
+    pill.textContent = `Recognition online · ${enrolled.size} loaded`;
+  } else {
+    pill.className = "pill bad";
+    pill.textContent = "Recognition offline";
+  }
+  render();
+}
+
+function render() {
+  const q = $("search").value.trim().toLowerCase();
+  const shown = guests.filter((g) =>
+    `${g.first_name} ${g.last_name}`.toLowerCase().includes(q));
+
+  $("guest-count").textContent = guests.length ? `(${guests.length})` : "";
+  $("guests-empty").classList.toggle("hidden", guests.length > 0);
+
+  const list = $("guests");
+  list.replaceChildren(...shown.map(guestCard));
+}
+
+function guestCard(g) {
+  const card = el("div", "guest");
+
+  const img = el("img");
+  img.src = `${API}users/${g.id}/photo`;
+  img.alt = `${g.first_name} ${g.last_name}`;
+  img.loading = "lazy";
+  card.append(img);
+
+  const body = el("div", "body");
+  const name = el("div", "name", `${g.first_name} ${g.last_name} `);
+  name.append(el("span", "id", `#${g.id}`));
+  body.append(name);
+  if (g.bio) body.append(el("div", "bio", g.bio));
+
+  const actions = el("div", "actions");
+  if (!recognitionOnline) {
+    actions.append(el("span", "pill warn", "Waiting for recognition"));
+  } else if (enrolled.has(g.id)) {
+    actions.append(el("span", "pill ok", "Recognized"));
+  } else {
+    const retry = el("button", "small", "Retry face");
+    retry.type = "button";
+    retry.onclick = () => resync(g, retry);
+    actions.append(el("span", "pill bad", "Not loaded"), retry);
+  }
+
+  const del = el("button", "small danger", "Delete");
+  del.type = "button";
+  del.onclick = () => {
+    if (del.dataset.armed) { remove(g, del); return; }
+    del.dataset.armed = "1";
+    del.textContent = "Confirm delete";
+    setTimeout(() => { delete del.dataset.armed; del.textContent = "Delete"; }, 4000);
+  };
+  actions.append(del);
+  body.append(actions);
+  card.append(body);
+  return card;
+}
+
+async function remove(g, btn) {
+  btn.disabled = true;
+  const res = await fetch(`${API}users/${g.id}`, { method: "DELETE" });
+  if (!res.ok) {
+    btn.disabled = false;
+    notice(`Couldn't delete ${g.first_name}: ${detailText(await res.json().catch(() => ({})))}`, "bad");
+    return;
+  }
+  await refresh();
+}
+
+async function resync(g, btn) {
+  btn.disabled = true;
+  btn.textContent = "Trying…";
+  const res = await fetch(`${API}users/${g.id}/sync`, { method: "POST" });
+  const body = await res.json().catch(() => ({}));
+  if (body.status !== "enrolled") {
+    notice(`${g.first_name} ${g.last_name}: ${body.detail ?? detailText(body)}`, "bad");
+  }
+  await refresh();
+}
+
+$("search").oninput = render;
+
+// ---- Helpers ----
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function show(id) { $(id).classList.remove("hidden"); }
+function hide(id) { $(id).classList.add("hidden"); }
+function notice(text, kind) {
+  const n = $("form-notice");
+  n.textContent = text;
+  n.className = `notice ${kind}`;
+}
+function clearNotice() { $("form-notice").className = "notice hidden"; }
+
+refresh().catch((e) => notice("Couldn't load guests: " + e.message, "bad"));
+setInterval(() => refresh().catch(() => {}), 15000);
+</script>
+</body>
+</html>

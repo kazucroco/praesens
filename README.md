@@ -12,6 +12,13 @@ These are quick and dirty instructions for getting the API server to run in your
 
 You can now make calls to the API server using [Postman](https://www.postman.com/) or whatever you wish.
 
+## Staff Enrollment App
+With the API running, open http://localhost:8000/ (it redirects to `/staff/`). Hotel staff can enroll a guest with a name, notes and a photo, see every guest and whether the recognition service has loaded them, retry a guest whose face didn't load, and delete guests.
+
+- **Photos** can come from the webcam or from a file. On a phone or tablet, "Upload photo" opens the camera. Every photo is converted to JPEG before upload.
+- **Other devices** on the same network can open `http://<this PC's IP>:8000/`. Browsers only allow the webcam on `localhost` or HTTPS, so on other devices use "Upload photo".
+- **Recognition:** after saving a guest, the API asks the recognition service to load them. If the photo has no usable face (or more than one), the guest isn't saved and staff are asked to retake the photo. If the recognition service isn't running, the guest is saved and loaded when it starts. Deleting a guest also removes them from the recognition service. Set `PRAESENS_RECOGNITION_URL` if it isn't at `http://localhost:8001`.
+
 > NOTE: The API server currently expects HTTP (**NOT** HTTPS) requests. Apparently, it's possible to get this working with FastAPI directly but I think I'm probably just going to set up a Caddy server in the `compose.yaml` because it seems easier. I just haven't done it yet.
 
 ## Recognition How-to
