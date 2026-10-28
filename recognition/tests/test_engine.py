@@ -65,7 +65,8 @@ class FakeEmbedder:
 @pytest.fixture
 def fx():
     emb = FakeEmbedder()
-    s = Settings(match_threshold=0.5, review_threshold=0.35, confirm_frames=1, cooldown_seconds=60)
+    s = Settings(match_threshold=0.5, review_threshold=0.35, confirm_frames=1, cooldown_seconds=60,
+                 camera_autostart=False)
     return FaceEngine(s, embedder=emb), emb
 
 
@@ -208,5 +209,6 @@ def test_router(fx):
 
         st = c.get("/faces/status").json()
         assert st["guests_enrolled"] == 1 and st["camera"]["running"] is False
+        assert c.get("/faces/camera/snapshot").status_code == 409
         assert c.delete("/faces/guests/42").status_code == 200
         assert c.delete("/faces/guests/42").status_code == 404

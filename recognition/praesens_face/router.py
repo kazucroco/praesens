@@ -13,7 +13,7 @@ import asyncio
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from .engine import EnrollmentError, FaceEngine
@@ -99,6 +99,16 @@ def build_router(engine: FaceEngine, prefix: str = "/faces") -> APIRouter:
     def camera_stop() -> dict[str, Any]:
         engine.stop_camera()
         return {"running": False}
+
+    @r.get("/camera/snapshot")
+    def camera_snapshot() -> Response:
+        """The current camera frame as a JPEG, without boxes. Used to take
+        enrollment photos while recognition keeps the camera."""
+        cam = engine.camera
+        jpeg = cam.snapshot_jpeg() if cam and cam.running else None
+        if jpeg is None:
+            raise HTTPException(409, "camera is not running")
+        return Response(jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
     @r.get("/stream")
     async def stream() -> StreamingResponse:

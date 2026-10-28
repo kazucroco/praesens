@@ -63,6 +63,7 @@ dashboard ──REST──▶ main API :8000 ──▶ Postgres
 | GET | `/faces/status` | Model, gallery size, fingerprint, camera stats (incl. recognition time per frame). |
 | POST | `/faces/camera/start`, `/faces/camera/stop` | Start/stop the webcam worker. |
 | GET | `/faces/stream` | MJPEG live view with boxes and scores: `<img src="/faces/stream">`. |
+| GET | `/faces/camera/snapshot` | The current frame as a JPEG without boxes. The staff app takes enrollment photos with it. |
 | WS | `/faces/events` | Pushes one JSON message per notification (below). |
 
 WebSocket message:

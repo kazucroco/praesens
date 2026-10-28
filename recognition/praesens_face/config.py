@@ -64,8 +64,10 @@ class Settings:
     # How many frames per second to run recognition on. The camera is read at
     # full rate; extra frames are only used for the preview stream.
     process_fps: float = 5.0
-    # Start the camera when the engine starts.
-    camera_autostart: bool = False
+    # Start the camera when the engine starts. The camera is meant to run the
+    # whole time the service is up; set PRAESENS_CAMERA_AUTOSTART=0 to start it
+    # by hand with POST /faces/camera/start instead.
+    camera_autostart: bool = True
 
     # --- Main API --------------------------------------------------------
     # Base URL of the Praesens API (api/praesens_api.py). On startup and on

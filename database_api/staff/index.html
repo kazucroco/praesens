@@ -81,8 +81,7 @@
     display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px;
     position: relative;
   }
-  .photo-box video, .photo-box img { width: 100%; height: 100%; object-fit: cover; }
-  .photo-box video { transform: scaleX(-1); }
+  .photo-box img { width: 100%; height: 100%; object-fit: cover; }
   .photo-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
   .photo-actions button { flex: 1; }
   .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
@@ -112,13 +111,35 @@
   .guest img { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; background: var(--bg); flex: none; }
   /* On phones the row is too narrow, so the name gets its own line. */
   @media (max-width: 520px) {
-    .guest { flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
+    .guest { flex-wrap: wrap; gap: 6px; padding: 8px 10px; }
     .guest img { width: 44px; height: 44px; }
+    .guest button.small { padding: 4px 8px; }
+    .guest .pill { padding: 3px 8px; font-size: 12px; }
     .guest .who { flex-basis: 100%; }
     .guest .status { flex: 1; }
   }
   .empty { color: var(--muted); padding: 30px 0; text-align: center; }
   .hidden { display: none !important; }
+
+  /* Guest popups: stacked in the top-right corner until dismissed. */
+  .popups {
+    position: fixed; top: 16px; right: 16px; z-index: 10;
+    display: flex; flex-direction: column; gap: 10px; width: min(360px, calc(100vw - 32px));
+  }
+  .popup {
+    background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--ok);
+    border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+    display: flex; gap: 12px; padding: 12px; animation: popup-in .2s ease-out;
+  }
+  .popup.review { border-left-color: var(--warn); }
+  .popup img { width: 88px; height: 88px; border-radius: 8px; object-fit: cover; background: var(--bg); flex: none; }
+  .popup .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .popup .title { display: flex; justify-content: space-between; align-items: start; gap: 8px; }
+  .popup .name { font-weight: 600; font-size: 16px; }
+  .popup .meta { color: var(--muted); font-size: 12px; }
+  .popup .bio { font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 7.5em; overflow: auto; }
+  .popup .close { border: none; background: none; color: var(--muted); font-size: 18px; line-height: 1; padding: 0 2px; }
+  @keyframes popup-in { from { opacity: 0; transform: translateY(-6px); } }
 </style>
 </head>
 <body>
@@ -156,7 +177,7 @@
         <label>Photo</label>
         <div class="photo-box" id="photo-box">
           <span id="photo-placeholder">No photo yet</span>
-          <video id="video" class="hidden" autoplay playsinline muted></video>
+          <img id="live" class="hidden" alt="Live camera view">
           <img id="preview" class="hidden" alt="Guest photo preview">
         </div>
         <div class="photo-actions">
@@ -179,12 +200,17 @@
   </section>
 </main>
 
+<div id="popups" class="popups" aria-live="polite"></div>
+
 <script>
 const API = "/api/v1/";
+// The recognition service owns the camera. It runs on port 8001 of the same
+// machine as the API, so this works from other devices on the network too.
+const RECOGNITION = `${location.protocol}//${location.hostname}:8001/faces/`;
 const $ = (id) => document.getElementById(id);
 
 let photoBlob = null;   // JPEG of the current photo
-let stream = null;      // active webcam stream
+let live = false;       // whether the Photo frame is showing the live camera
 let guests = [];        // [{id, first_name, last_name, bio}]
 let enrolled = new Set();
 let recognitionOnline = false;
@@ -206,47 +232,53 @@ function closePanel() {
   hide("enroll-form"); show("open-btn");
 }
 
-// ---- Photo: webcam only, sent as JPEG ----
+// ---- Photo: taken from the recognition service's camera ----
 
-async function startCamera() {
+function startCamera() {
   clearPhoto();
   $("capture-btn").disabled = true;
-  $("photo-placeholder").textContent = "Starting camera…";
-  if (!navigator.mediaDevices?.getUserMedia) {
-    $("photo-placeholder").textContent = "The camera only works when this page is opened at localhost or over HTTPS.";
-    return;
-  }
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 960, facingMode: "user" } });
-  } catch (e) {
-    $("photo-placeholder").textContent = "Couldn't open the camera: " + e.message;
-    return;
-  }
-  // The panel may have been closed while the camera was starting.
-  if ($("enroll-form").classList.contains("hidden")) { stopCamera(); return; }
-  $("video").srcObject = stream;
-  show("video"); hide("photo-placeholder");
   $("capture-btn").textContent = "Capture";
-  $("capture-btn").disabled = false;
+  $("photo-placeholder").textContent = "Connecting to camera…";
+  const img = $("live");
+  img.onload = () => {
+    if (!live) return;
+    show("live"); hide("photo-placeholder");
+    $("capture-btn").disabled = false;
+  };
+  img.onerror = () => {
+    if (!live) return;
+    stopCamera();
+    $("photo-placeholder").textContent = "The camera isn't available. Check that the recognition service is running.";
+    $("capture-btn").textContent = "Try again";
+    $("capture-btn").disabled = false;
+  };
+  live = true;
+  img.src = RECOGNITION + "stream?t=" + Date.now();
 }
 
 function stopCamera() {
-  if (stream) stream.getTracks().forEach((t) => t.stop());
-  stream = null;
-  hide("video");
+  live = false;
+  // Clearing src closes the stream connection.
+  $("live").removeAttribute("src");
+  hide("live");
 }
 
 // Capture takes the photo; after that the same button retakes it.
 $("capture-btn").onclick = async () => {
-  if (!stream) { startCamera(); return; }
-  const v = $("video");
-  const c = document.createElement("canvas");
-  c.width = v.videoWidth; c.height = v.videoHeight;
-  // The live preview is mirrored with CSS; the saved photo is not.
-  c.getContext("2d").drawImage(v, 0, 0);
-  setPhoto(await toJpeg(c));
-  stopCamera();
-  $("capture-btn").textContent = "Retake";
+  if (!live) { startCamera(); return; }
+  $("capture-btn").disabled = true;
+  try {
+    const res = await fetch(RECOGNITION + "camera/snapshot", { cache: "no-store" });
+    if (!res.ok) throw new Error(`camera returned ${res.status}`);
+    const blob = await res.blob();
+    stopCamera();
+    setPhoto(blob);
+    $("capture-btn").textContent = "Retake";
+  } catch (err) {
+    notice("Couldn't take the photo: " + err.message, "bad");
+  } finally {
+    $("capture-btn").disabled = false;
+  }
 };
 
 function setPhoto(blob) {
@@ -261,10 +293,6 @@ function setPhoto(blob) {
 function clearPhoto() {
   photoBlob = null;
   hide("preview"); show("photo-placeholder");
-}
-
-function toJpeg(canvas) {
-  return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
 }
 
 // ---- Enroll ----
@@ -443,6 +471,53 @@ function notice(text, kind, target = "form-notice") {
 }
 function clearNotice() { $("form-notice").className = "notice hidden"; }
 
+// ---- Guest popups: one per "guest detected" event from recognition ----
+
+const MAX_POPUPS = 4;
+
+function listenForGuests() {
+  const ws = new WebSocket(RECOGNITION.replace(/^http/, "ws") + "events");
+  ws.onmessage = (e) => {
+    const event = JSON.parse(e.data);
+    if (event.type === "guest_detected") showPopup(event);
+  };
+  // Reconnect if the recognition service restarts.
+  ws.onclose = () => setTimeout(listenForGuests, 3000);
+}
+
+async function showPopup(event) {
+  const res = await fetch(`${API}users/${event.guest_id}`);
+  if (!res.ok) return;  // checked out since the event was sent
+  const g = await res.json();
+
+  const card = el("div", event.status === "review" ? "popup review" : "popup");
+  const img = el("img");
+  img.src = `${API}users/${g.id}/photo`;
+  img.alt = `${g.first_name} ${g.last_name}`;
+  card.append(img);
+
+  const info = el("div", "info");
+  const title = el("div", "title");
+  title.append(el("div", "name", `${g.first_name} ${g.last_name}`));
+  const close = el("button", "close", "×");
+  close.type = "button";
+  close.title = "Dismiss";
+  close.onclick = () => card.remove();
+  title.append(close);
+  info.append(title);
+
+  const time = new Date(event.timestamp * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const meta = event.status === "review" ? `Possible match · ${time}` : `Arrived · ${time}`;
+  info.append(el("div", "meta", meta));
+  if (g.bio) info.append(el("div", "bio", g.bio));
+  card.append(info);
+
+  const stack = $("popups");
+  stack.prepend(card);
+  while (stack.children.length > MAX_POPUPS) stack.lastElementChild.remove();
+}
+
+listenForGuests();
 refresh().catch((e) => notice("Couldn't load guests: " + e.message, "bad", "enroll-notice"));
 setInterval(() => refresh().catch(() => {}), 15000);
 </script>
