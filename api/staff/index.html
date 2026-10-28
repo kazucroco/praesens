@@ -46,7 +46,7 @@
     font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
   header {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
     padding: 14px 20px; background: var(--surface); border-bottom: 1px solid var(--border);
     position: sticky; top: 0; z-index: 2;
   }
@@ -85,7 +85,9 @@
   .photo-box video, .photo-box img { width: 100%; height: 100%; object-fit: cover; }
   .photo-box video { transform: scaleX(-1); }
   .photo-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-  .hint { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
+  .photo-actions button { flex: 1; }
+  .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .panel-head h2 { margin: 0; }
   .notice { padding: 10px 12px; border-radius: 8px; font-size: 14px; margin-top: 12px; }
   .notice.ok { background: var(--ok-bg); color: var(--ok); }
   .notice.warn { background: var(--warn-bg); color: var(--warn); }
@@ -118,8 +120,14 @@
 
 <main>
   <section class="panel">
-    <h2>New guest</h2>
-    <form id="enroll-form" autocomplete="off">
+    <button type="button" class="primary" id="open-btn" style="width:100%">Enroll guest</button>
+    <div id="enroll-notice" class="notice hidden"></div>
+
+    <form id="enroll-form" class="hidden" autocomplete="off">
+      <div class="panel-head">
+        <h2>New guest</h2>
+        <button type="button" class="small" id="close-btn">Cancel</button>
+      </div>
       <div class="row">
         <div class="field">
           <label for="first-name">First name</label>
@@ -143,15 +151,11 @@
           <img id="preview" class="hidden" alt="Guest photo preview">
         </div>
         <div class="photo-actions">
-          <button type="button" id="camera-btn">Use webcam</button>
-          <button type="button" id="capture-btn" class="primary hidden">Take photo</button>
-          <button type="button" id="upload-btn">Upload photo</button>
-          <input id="file-input" type="file" accept="image/*" capture="user" class="hidden">
+          <button type="button" id="capture-btn" disabled>Capture</button>
         </div>
-        <p class="hint">Face the camera, one person only, good light, no sunglasses.</p>
       </div>
 
-      <button type="submit" class="primary" id="submit-btn" style="width:100%">Enroll guest</button>
+      <button type="submit" class="primary" id="submit-btn" style="width:100%">Enroll</button>
       <div id="form-notice" class="notice hidden"></div>
     </form>
   </section>
@@ -176,62 +180,65 @@ let guests = [];        // [{id, first_name, last_name, bio}]
 let enrolled = new Set();
 let recognitionOnline = false;
 
-// ---- Photo: webcam or upload, always sent as JPEG ----
+// ---- Enrollment panel: collapsed to a button until opened ----
 
-$("camera-btn").onclick = async () => {
-  if (stream) { stopCamera(); return; }
+$("open-btn").onclick = () => {
+  hide("open-btn"); hide("enroll-notice"); show("enroll-form");
+  clearNotice();
+  startCamera();
+};
+
+$("close-btn").onclick = () => closePanel();
+
+function closePanel() {
+  stopCamera();
+  clearPhoto();
+  $("enroll-form").reset();
+  hide("enroll-form"); show("open-btn");
+}
+
+// ---- Photo: webcam only, sent as JPEG ----
+
+async function startCamera() {
+  clearPhoto();
+  $("capture-btn").disabled = true;
+  $("photo-placeholder").textContent = "Starting camera…";
   if (!navigator.mediaDevices?.getUserMedia) {
-    notice("The webcam only works when this page is opened at localhost or over HTTPS. Use Upload photo instead.", "warn");
+    $("photo-placeholder").textContent = "The camera only works when this page is opened at localhost or over HTTPS.";
     return;
   }
   try {
     stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 960, facingMode: "user" } });
   } catch (e) {
-    notice("Couldn't open the webcam: " + e.message, "bad");
+    $("photo-placeholder").textContent = "Couldn't open the camera: " + e.message;
     return;
   }
+  // The panel may have been closed while the camera was starting.
+  if ($("enroll-form").classList.contains("hidden")) { stopCamera(); return; }
   $("video").srcObject = stream;
-  show("video"); hide("preview"); hide("photo-placeholder"); show("capture-btn");
-  $("camera-btn").textContent = "Close webcam";
-};
-
-$("capture-btn").onclick = async () => {
-  const v = $("video");
-  const c = document.createElement("canvas");
-  c.width = v.videoWidth; c.height = v.videoHeight;
-  const ctx = c.getContext("2d");
-  // The live preview is mirrored with CSS; the saved photo is not.
-  ctx.drawImage(v, 0, 0);
-  setPhoto(await toJpeg(c));
-  stopCamera();
-};
-
-$("upload-btn").onclick = () => $("file-input").click();
-$("file-input").onchange = async (e) => {
-  const file = e.target.files[0];
-  e.target.value = "";
-  if (!file) return;
-  stopCamera();
-  try {
-    const img = await loadImage(file);
-    const scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
-    const c = document.createElement("canvas");
-    c.width = Math.round(img.naturalWidth * scale);
-    c.height = Math.round(img.naturalHeight * scale);
-    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-    setPhoto(await toJpeg(c));
-  } catch {
-    notice("That file couldn't be read as an image. Try a JPEG or PNG.", "bad");
-  }
-};
+  show("video"); hide("photo-placeholder");
+  $("capture-btn").textContent = "Capture";
+  $("capture-btn").disabled = false;
+}
 
 function stopCamera() {
   if (stream) stream.getTracks().forEach((t) => t.stop());
   stream = null;
-  hide("video"); hide("capture-btn");
-  $("camera-btn").textContent = "Use webcam";
-  if (!photoBlob) show("photo-placeholder");
+  hide("video");
 }
+
+// Capture takes the photo; after that the same button retakes it.
+$("capture-btn").onclick = async () => {
+  if (!stream) { startCamera(); return; }
+  const v = $("video");
+  const c = document.createElement("canvas");
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  // The live preview is mirrored with CSS; the saved photo is not.
+  c.getContext("2d").drawImage(v, 0, 0);
+  setPhoto(await toJpeg(c));
+  stopCamera();
+  $("capture-btn").textContent = "Retake";
+};
 
 function setPhoto(blob) {
   photoBlob = blob;
@@ -251,20 +258,11 @@ function toJpeg(canvas) {
   return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
 }
 
-function loadImage(file) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => { URL.revokeObjectURL(img.src); resolve(img); };
-    img.onerror = reject;
-    img.src = URL.createObjectURL(file);
-  });
-}
-
 // ---- Enroll ----
 
 $("enroll-form").onsubmit = async (e) => {
   e.preventDefault();
-  if (!photoBlob) { notice("Take or upload a photo first.", "warn"); return; }
+  if (!photoBlob) { notice("Capture a photo first.", "warn"); return; }
 
   const form = new FormData();
   form.append("first_name", $("first-name").value.trim());
@@ -286,19 +284,18 @@ $("enroll-form").onsubmit = async (e) => {
       return;
     }
     const name = `${body.first_name} ${body.last_name}`;
+    closePanel();
     if (body.recognition?.status === "enrolled") {
-      notice(`${name} is enrolled and will be recognized now.`, "ok");
+      notice(`${name} is enrolled and will be recognized now.`, "ok", "enroll-notice");
     } else {
-      notice(`${name} is saved. ${body.recognition?.detail ?? ""}`, "warn");
+      notice(`${name} is saved. ${body.recognition?.detail ?? ""}`, "warn", "enroll-notice");
     }
-    $("enroll-form").reset();
-    clearPhoto();
     await refresh();
   } catch (err) {
     notice("Couldn't reach the server: " + err.message, "bad");
   } finally {
     $("submit-btn").disabled = false;
-    $("submit-btn").textContent = "Enroll guest";
+    $("submit-btn").textContent = "Enroll";
   }
 };
 
@@ -394,7 +391,7 @@ async function remove(g, btn) {
   const res = await fetch(`${API}users/${g.id}`, { method: "DELETE" });
   if (!res.ok) {
     btn.disabled = false;
-    notice(`Couldn't delete ${g.first_name}: ${detailText(await res.json().catch(() => ({})))}`, "bad");
+    notice(`Couldn't delete ${g.first_name}: ${detailText(await res.json().catch(() => ({})))}`, "bad", "enroll-notice");
     return;
   }
   await refresh();
@@ -406,7 +403,7 @@ async function resync(g, btn) {
   const res = await fetch(`${API}users/${g.id}/sync`, { method: "POST" });
   const body = await res.json().catch(() => ({}));
   if (body.status !== "enrolled") {
-    notice(`${g.first_name} ${g.last_name}: ${body.detail ?? detailText(body)}`, "bad");
+    notice(`${g.first_name} ${g.last_name}: ${body.detail ?? detailText(body)}`, "bad", "enroll-notice");
   }
   await refresh();
 }
@@ -423,14 +420,16 @@ function el(tag, cls, text) {
 }
 function show(id) { $(id).classList.remove("hidden"); }
 function hide(id) { $(id).classList.add("hidden"); }
-function notice(text, kind) {
-  const n = $("form-notice");
+// Shows a status message: under the Enroll button, or under the collapsed
+// panel's button when target is "enroll-notice".
+function notice(text, kind, target = "form-notice") {
+  const n = $(target);
   n.textContent = text;
   n.className = `notice ${kind}`;
 }
 function clearNotice() { $("form-notice").className = "notice hidden"; }
 
-refresh().catch((e) => notice("Couldn't load guests: " + e.message, "bad"));
+refresh().catch((e) => notice("Couldn't load guests: " + e.message, "bad", "enroll-notice"));
 setInterval(() => refresh().catch(() => {}), 15000);
 </script>
 </body>
