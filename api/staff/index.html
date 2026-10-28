@@ -134,8 +134,8 @@
 
     <form id="enroll-form" class="hidden" autocomplete="off">
       <div class="panel-head">
-        <h2>New guest</h2>
-        <button type="button" class="small" id="close-btn">Cancel</button>
+        <h2>New enrollment</h2>
+        <button type="button" class="small danger" id="close-btn">Cancel</button>
       </div>
       <div class="row">
         <div class="field">
@@ -354,7 +354,7 @@ function render() {
   list.replaceChildren(...shown.map(guestCard));
 }
 
-// One row per guest: name, recognition tag, photo, then Delete.
+// One row per guest: name, recognition tag, photo, then Checkout.
 function guestCard(g) {
   const card = el("div", "guest");
 
@@ -388,13 +388,13 @@ function guestCard(g) {
   img.loading = "lazy";
   card.append(img);
 
-  const del = el("button", "small danger", "Delete");
+  const del = el("button", "small danger", "Checkout");
   del.type = "button";
   del.onclick = () => {
     if (del.dataset.armed) { remove(g, del); return; }
     del.dataset.armed = "1";
     del.textContent = "Confirm";
-    setTimeout(() => { delete del.dataset.armed; del.textContent = "Delete"; }, 4000);
+    setTimeout(() => { delete del.dataset.armed; del.textContent = "Checkout"; }, 4000);
   };
   card.append(del);
   return card;
@@ -405,7 +405,7 @@ async function remove(g, btn) {
   const res = await fetch(`${API}users/${g.id}`, { method: "DELETE" });
   if (!res.ok) {
     btn.disabled = false;
-    notice(`Couldn't delete ${g.first_name}: ${detailText(await res.json().catch(() => ({})))}`, "bad", "enroll-notice");
+    notice(`Couldn't check out ${g.first_name}: ${detailText(await res.json().catch(() => ({})))}`, "bad", "enroll-notice");
     return;
   }
   await refresh();
