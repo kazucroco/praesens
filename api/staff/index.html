@@ -53,10 +53,9 @@
   header h1 { font-size: 18px; margin: 0; font-weight: 600; }
   header h1 span { color: var(--muted); font-weight: 400; }
   main {
-    max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px;
-    display: grid; grid-template-columns: 380px 1fr; gap: 20px; align-items: start;
+    max-width: 720px; margin: 0 auto; padding: 20px 16px 40px;
+    display: flex; flex-direction: column; gap: 20px;
   }
-  @media (max-width: 820px) { main { grid-template-columns: 1fr; } }
   .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
   .panel h2 { font-size: 16px; margin: 0 0 14px; }
   label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 4px; }
@@ -100,14 +99,24 @@
   .list-head { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
   .list-head h2 { margin: 0; flex: none; }
   .list-head input { flex: 1; }
-  .guests { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
-  .guest { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; }
-  .guest img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--bg); display: block; }
-  .guest .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
-  .guest .name { font-weight: 600; }
+  .guests { display: flex; flex-direction: column; gap: 8px; }
+  .guest {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 14px;
+  }
+  .guest .who { flex: 1; min-width: 0; }
+  .guest .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .guest .id { color: var(--muted); font-size: 12px; font-weight: 400; }
-  .guest .bio { color: var(--muted); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .guest .actions { display: flex; gap: 6px; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 4px; }
+  .guest .bio { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .guest .status { display: flex; gap: 6px; align-items: center; flex: none; }
+  .guest img { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; background: var(--bg); flex: none; }
+  /* On phones the row is too narrow, so the name gets its own line. */
+  @media (max-width: 520px) {
+    .guest { flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
+    .guest img { width: 44px; height: 44px; }
+    .guest .who { flex-basis: 100%; }
+    .guest .status { flex: 1; }
+  }
   .empty { color: var(--muted); padding: 30px 0; text-align: center; }
   .hidden { display: none !important; }
 </style>
@@ -345,8 +354,33 @@ function render() {
   list.replaceChildren(...shown.map(guestCard));
 }
 
+// One row per guest: name, recognition tag, photo, then Delete.
 function guestCard(g) {
   const card = el("div", "guest");
+
+  const who = el("div", "who");
+  const name = el("div", "name", `${g.first_name} ${g.last_name} `);
+  name.append(el("span", "id", `#${g.id}`));
+  who.append(name);
+  if (g.bio) {
+    const bio = el("div", "bio", g.bio);
+    bio.title = g.bio;
+    who.append(bio);
+  }
+  card.append(who);
+
+  const status = el("div", "status");
+  if (!recognitionOnline) {
+    status.append(el("span", "pill warn", "Waiting"));
+  } else if (enrolled.has(g.id)) {
+    status.append(el("span", "pill ok", "Recognized"));
+  } else {
+    const retry = el("button", "small", "Retry");
+    retry.type = "button";
+    retry.onclick = () => resync(g, retry);
+    status.append(el("span", "pill bad", "Not loaded"), retry);
+  }
+  card.append(status);
 
   const img = el("img");
   img.src = `${API}users/${g.id}/photo`;
@@ -354,35 +388,15 @@ function guestCard(g) {
   img.loading = "lazy";
   card.append(img);
 
-  const body = el("div", "body");
-  const name = el("div", "name", `${g.first_name} ${g.last_name} `);
-  name.append(el("span", "id", `#${g.id}`));
-  body.append(name);
-  if (g.bio) body.append(el("div", "bio", g.bio));
-
-  const actions = el("div", "actions");
-  if (!recognitionOnline) {
-    actions.append(el("span", "pill warn", "Waiting for recognition"));
-  } else if (enrolled.has(g.id)) {
-    actions.append(el("span", "pill ok", "Recognized"));
-  } else {
-    const retry = el("button", "small", "Retry face");
-    retry.type = "button";
-    retry.onclick = () => resync(g, retry);
-    actions.append(el("span", "pill bad", "Not loaded"), retry);
-  }
-
   const del = el("button", "small danger", "Delete");
   del.type = "button";
   del.onclick = () => {
     if (del.dataset.armed) { remove(g, del); return; }
     del.dataset.armed = "1";
-    del.textContent = "Confirm delete";
+    del.textContent = "Confirm";
     setTimeout(() => { delete del.dataset.armed; del.textContent = "Delete"; }, 4000);
   };
-  actions.append(del);
-  body.append(actions);
-  card.append(body);
+  card.append(del);
   return card;
 }
 
