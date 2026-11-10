@@ -51,8 +51,28 @@ services:
     environment:
       PRAESENS_API_URL: http://praesens_db_api:8000/api/v1
 
+  praesens_proxy:
+    container_name: praesens_proxy
+    tty: true
+    image: caddy:2.11
+    restart: unless-stopped
+    networks:
+      - praesens_net
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:Z
+      - ./praesens_dashboard/:/var/www/html:Z
+      - praesens_proxy_data:/data
+      - praesens_proxy_config:/config
+    environment:
+      HOST_HOSTNAME: ${HOSTNAME}
+
 volumes:
   praesens_db_data:
+  praesens_proxy_data:
+  praesens_proxy_config:
 
 networks:
   praesens_net:
