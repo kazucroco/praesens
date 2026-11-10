@@ -15,14 +15,14 @@ app = FastAPI()
 API_VERSION = "/api/v1/"
 DB_CONNECTION_PARAMS = os.environ.get(
     "PRAESENS_DB",
-    "host=localhost port=5432 dbname=praesens user=praesens password=praesens"
+    "host=praesens_db port=5432 dbname=praesens user=praesens password=praesens"
 )
 
 IMAGE_PATH = "./images/"
 
 # The face recognition service (recognition/server.py). The API tells it about
 # new and deleted guests so they're recognized (or forgotten) right away.
-RECOGNITION_URL = os.environ.get("PRAESENS_RECOGNITION_URL", "http://localhost:8001")
+RECOGNITION_URL = os.environ.get("PRAESENS_RECOGNITION_URL", "http://praesens_recognition:8001")
 RECOGNITION_TIMEOUT = 30.0
 
 # The staff enrollment app (api/staff/) is served at /staff/.

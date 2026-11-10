@@ -1,9 +1,10 @@
 insightface>=0.7.3
 onnxruntime>=1.17        # swap for onnxruntime-gpu on the NVIDIA machines
+onnxruntime-gpu
 faiss-cpu>=1.8
 numpy>=1.26
 opencv-python-headless>=4.9
-fastapi>=0.110
+fastapi[standard]
 python-multipart>=0.0.9  # needed for photo uploads
 uvicorn[standard]>=0.29  # includes websockets support
 

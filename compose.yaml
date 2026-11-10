@@ -2,13 +2,58 @@ services:
   praesens_db:
     container_name: praesens_db
     image: postgres:18
+    tty: true
     restart: unless-stopped
-    ports:
-      - 5432:5432
+    # ports:
+    #   - 5432:5432
     volumes:
       - praesens_db_data:/var/lib/postgresql
+    networks:
+      - praesens_net
     environment:
       POSTGRES_USER: praesens
       POSTGRES_PASSWORD: praesens
+
+  praesens_db_api:
+    container_name: praesens_db_api
+    tty: true
+    build:
+      context: ./database_api/
+      dockerfile: Dockerfile
+    image: praesens_db_api:latest
+    restart: unless-stopped
+    networks:
+      - praesens_net
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./images:/database_api/images:rw,z,U
+
+  praesens_recognition:
+    container_name: praesens_recognition
+    tty: true
+    build:
+      context: ./recognition/
+      dockerfile: Dockerfile
+    image: praesens_recognition:latest
+    restart: unless-stopped
+    devices:
+      - /dev/video0:/dev/video0:rwm
+    privileged: true
+    group_add:
+      - keep-groups
+    networks:
+      - praesens_net
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./images:/recognition/images:ro,z
+    environment:
+      PRAESENS_API_URL: http://praesens_db_api:8000/api/v1
+
 volumes:
   praesens_db_data:
+
+networks:
+  praesens_net:
+    driver: bridge
