@@ -28,6 +28,8 @@ services:
       - "8000:8000"
     volumes:
       - ./images:/database_api/images:rw,z,U
+    depends_on:
+      - praesens_db
 
   praesens_recognition:
     container_name: praesens_recognition
@@ -50,6 +52,8 @@ services:
       - ./images:/recognition/images:ro,z
     environment:
       PRAESENS_API_URL: http://praesens_db_api:8000/api/v1
+    depends_on:
+      - praesens_db_api
 
   praesens_proxy:
     container_name: praesens_proxy
