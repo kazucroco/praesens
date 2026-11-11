@@ -63,13 +63,20 @@ dashboard ──REST──▶ main API :8000 ──▶ Postgres
 | GET | `/faces/status` | Model, gallery size, fingerprint, camera stats (incl. recognition time per frame). |
 | POST | `/faces/camera/start`, `/faces/camera/stop` | Start/stop the webcam worker. |
 | GET | `/faces/stream` | MJPEG live view with boxes and scores: `<img src="/faces/stream">`. |
-| WS | `/faces/events` | Pushes one JSON message per notification (below). |
+| GET | `/faces/camera/snapshot` | The current frame as a JPEG without boxes. The staff app takes enrollment photos with it. |
+| WS | `/faces/events` | Pushes one JSON message per notification, plus the guests in view whenever that changes (below). |
 
 WebSocket message:
 
 ```json
 {"type": "guest_detected", "guest_id": "42", "status": "match",
  "score": 0.71, "bbox": [466, 269, 574, 415], "timestamp": 1791858222.75}
+```
+
+A `presence` message lists the guests the camera can see right now. It's sent when a client connects and whenever the list changes; the staff app uses it to turn a guest's Recognition tag green.
+
+```json
+{"type": "presence", "guest_ids": ["42"], "timestamp": 1791858222.75}
 ```
 
 The dashboard looks up the guest by id through the main API (`GET /api/v1/users/{id}`) to show the pop-up. `status: "review"` is the low-confidence "possible match" from the proposal; the UI can show it differently or ignore it.
@@ -83,7 +90,8 @@ Scores are cosine similarity between the live face and the closest enrollment ph
 | `match_threshold` | 0.45 | At or above: a match, fires a pop-up. |
 | `review_threshold` | 0.35 | Between this and match: "review" (possible match). Set equal to `match_threshold` to turn off. |
 | `confirm_frames` | 2 | Consecutive processed frames a guest must match before a pop-up. Cuts one-frame flukes. |
-| `cooldown_seconds` | 10 | At most one pop-up per guest per window (FR-04 de-duplication). |
+| `cooldown_seconds` | 300 | At most one pop-up per guest per window (FR-04 de-duplication). |
+| `presence_seconds` | 2 | A guest stays "in view" this long after their last match, so a missed frame doesn't flicker their tag. |
 | `min_det_score` | 0.6 | Ignore detections the detector is unsure about. |
 | `min_face_px` | 40 | Ignore faces smaller than this (too far from the camera). |
 | `process_fps` | 5 | Recognition runs per second. The preview runs at full camera rate either way. |

@@ -5,6 +5,7 @@ the embedder "detects" in it.
 """
 
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -65,7 +66,8 @@ class FakeEmbedder:
 @pytest.fixture
 def fx():
     emb = FakeEmbedder()
-    s = Settings(match_threshold=0.5, review_threshold=0.35, confirm_frames=1, cooldown_seconds=60)
+    s = Settings(match_threshold=0.5, review_threshold=0.35, confirm_frames=1, cooldown_seconds=60,
+                 camera_autostart=False)
     return FaceEngine(s, embedder=emb), emb
 
 
@@ -202,11 +204,32 @@ def test_router(fx):
         assert c.patch("/faces/config", json={"review_threshold": 0.9}).status_code == 422
 
         with c.websocket_connect("/faces/events") as ws:
+            assert ws.receive_json() == {"type": "presence", "guest_ids": [], "timestamp": pytest.approx(time.time(), abs=5)}
             eng.process_frame(emb.scene(4, [face(ALICE)]))
             msg = ws.receive_json()
             assert msg["type"] == "guest_detected" and msg["guest_id"] == "42"
+            assert ws.receive_json()["guest_ids"] == ["42"]
 
         st = c.get("/faces/status").json()
         assert st["guests_enrolled"] == 1 and st["camera"]["running"] is False
+        assert c.get("/faces/camera/snapshot").status_code == 409
         assert c.delete("/faces/guests/42").status_code == 200
         assert c.delete("/faces/guests/42").status_code == 404
+
+
+def test_presence(fx):
+    eng, emb = fx
+    eng.settings.update({"presence_seconds": 0})
+    eng.enroll("alice", [emb.scene(1, [face(ALICE)])])
+    eng.enroll("bob", [emb.scene(2, [face(BOB)])])
+    eng.process_frame(emb.scene(3, [face(near(ALICE, 0.8)), face(near(BOB, 0.4))]))
+    assert eng.presence()["guest_ids"] == ["alice"]  # a "review" doesn't count
+    eng.process_frame(emb.scene(4, []))
+    assert eng.presence()["guest_ids"] == []
+    eng.settings.update({"presence_seconds": 60})
+    eng.process_frame(emb.scene(3, [face(near(ALICE, 0.8))]))
+    eng.process_frame(emb.scene(4, []))
+    assert eng.presence()["guest_ids"] == ["alice"]  # held for presence_seconds
+    eng.remove("alice")
+    eng.process_frame(emb.scene(4, []))
+    assert eng.presence()["guest_ids"] == []
