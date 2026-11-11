@@ -63,6 +63,16 @@ class CameraWorker:
                                      timeout=timeout)
             return self._jpeg
 
+    def snapshot_jpeg(self) -> bytes | None:
+        """The newest raw frame (no boxes) as a full-quality JPEG. The staff app
+        uses this to take enrollment photos without opening the camera itself."""
+        with self._frame_lock:
+            frame = self._frame
+        if frame is None:
+            return None
+        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
+        return buf.tobytes() if ok else None
+
     def stats(self) -> dict:
         return {
             "running": self.running,

@@ -67,6 +67,8 @@ class FaceEngine:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._last_notified: dict[str, float] = {}
         self._streak: dict[str, int] = {}
+        self._last_seen: dict[str, float] = {}  # last confident match, per guest
+        self._present: frozenset[str] = frozenset()  # guests in view right now
         self._state_lock = threading.Lock()
         self._score_log_lock = threading.Lock()
         self.camera = None  # set by start_camera()
@@ -103,6 +105,11 @@ class FaceEngine:
     def stop_camera(self) -> None:
         if self.camera:
             self.camera.stop()
+        with self._state_lock:
+            self._last_seen.clear()
+            changed = self._set_present(frozenset())
+        if changed:
+            self._broadcast(self.presence())
 
     # --- enrollment ---------------------------------------------------------
     def embed_enrollment_photo(self, image: bytes | np.ndarray) -> np.ndarray:
@@ -165,6 +172,7 @@ class FaceEngine:
         with self._state_lock:
             self._last_notified.pop(guest_id, None)
             self._streak.pop(guest_id, None)
+            self._last_seen.pop(guest_id, None)
 
     # --- matching -----------------------------------------------------------
     def identify(self, image: bytes | np.ndarray) -> list[FaceResult]:
@@ -217,9 +225,30 @@ class FaceEngine:
                     continue
                 self._last_notified[g] = now
                 events.append(GuestEvent("guest_detected", g, r.status, r.score, r.bbox, now))
+            # A guest is "in view" while confidently matched, and for
+            # presence_seconds after, so a missed frame doesn't flicker it.
+            for g, r in seen.items():
+                if r.status == "match":
+                    self._last_seen[g] = now
+            self._last_seen = {g: t for g, t in self._last_seen.items()
+                               if now - t <= s.presence_seconds}
+            presence_changed = self._set_present(frozenset(self._last_seen))
         for e in events:
             self._emit(e)
+        if presence_changed:
+            self._broadcast(self.presence())
         return results
+
+    def _set_present(self, present: frozenset[str]) -> bool:
+        """Record who is in view; True if that changed. Call with _state_lock held."""
+        if present == self._present:
+            return False
+        self._present = present
+        return True
+
+    def presence(self) -> dict[str, Any]:
+        """The guests in view right now, as sent to WebSocket clients."""
+        return {"type": "presence", "guest_ids": sorted(self._present), "timestamp": time.time()}
 
     # --- events -------------------------------------------------------------
     def add_listener(self, fn: Listener) -> None:
@@ -242,8 +271,11 @@ class FaceEngine:
                 fn(event)
             except Exception:
                 log.exception("event listener failed")
+        self._broadcast(event.to_dict())
+
+    def _broadcast(self, payload: dict[str, Any]) -> None:
+        """Send a message to every WebSocket client."""
         if self._loop is not None:
-            payload = event.to_dict()
             for q in list(self._ws_queues):
                 self._loop.call_soon_threadsafe(_put_nowait, q, payload)
 
@@ -271,6 +303,7 @@ class FaceEngine:
             "gallery_fingerprint": self.gallery.fingerprint(),
             "camera": cam.stats() if cam else {"running": False},
             "websocket_clients": len(self._ws_queues),
+            "present": sorted(self._present),
             "config": self.settings.tunable(),
         }
 

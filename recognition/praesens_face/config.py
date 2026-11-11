@@ -18,6 +18,7 @@ from typing import Any
 # Fields that are safe to change while the engine is running.
 TUNABLE_FIELDS = {
     "match_threshold",
+    "presence_seconds",
     "review_threshold",
     "cooldown_seconds",
     "confirm_frames",
@@ -43,6 +44,9 @@ class Settings:
     # Number of consecutive processed frames a guest must match before a
     # notification fires. 1 = fire on the first match; 2-3 cuts one-frame flukes.
     confirm_frames: int = 2
+    # A guest counts as "in view" (shown on the staff page) for this many
+    # seconds after their last confident match.
+    presence_seconds: float = 2.0
 
     # --- Detection quality --------------------------------------------------
     # Faces below this detector confidence are ignored (live) or rejected (enroll).
@@ -64,8 +68,10 @@ class Settings:
     # How many frames per second to run recognition on. The camera is read at
     # full rate; extra frames are only used for the preview stream.
     process_fps: float = 5.0
-    # Start the camera when the engine starts.
-    camera_autostart: bool = False
+    # Start the camera when the engine starts. The camera is meant to run the
+    # whole time the service is up; set PRAESENS_CAMERA_AUTOSTART=0 to start it
+    # by hand with POST /faces/camera/start instead.
+    camera_autostart: bool = True
 
     # --- Main API --------------------------------------------------------
     # Base URL of the Praesens API (api/praesens_api.py). On startup and on
@@ -123,6 +129,8 @@ class Settings:
     def validate(self) -> None:
         if not -1.0 <= self.review_threshold <= self.match_threshold <= 1.0:
             raise ValueError("need -1 <= review_threshold <= match_threshold <= 1")
+        if self.presence_seconds < 0:
+            raise ValueError("presence_seconds must be >= 0")
         if self.cooldown_seconds < 0:
             raise ValueError("cooldown_seconds must be >= 0")
         if self.confirm_frames < 1:
