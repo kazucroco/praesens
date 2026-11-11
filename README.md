@@ -16,7 +16,7 @@ You can now make calls to the API server using [Postman](https://www.postman.com
 With the API and the recognition service running, open http://localhost:8000/ (it redirects to `/staff/`). Other devices on the same network can open `http://<this PC's IP>:8000/`.
 
 - **Enroll guest** opens the enrollment form. The Photo frame shows the recognition service's camera, and **Capture** takes a still from it, so the webcam stays with the recognition service the whole time.
-- **Guest list** shows every guest, whether recognition has loaded them, and a **Checkout** button that removes the guest and their face.
+- **Guest list** shows every guest and a **Checkout** button that removes the guest and their face. A guest's **Recognized** tag is green while the camera can see them and grey otherwise; "Not loaded" means recognition couldn't load their face.
 - **Guest popups:** when the camera recognizes an enrolled guest, a popup with their photo, name and notes appears in the top-right corner until it's dismissed. A "Possible match" popup has an amber edge.
 - **Recognition:** after saving a guest, the API asks the recognition service to load them. If the photo has no usable face (or more than one), the guest isn't saved and staff are asked to retake the photo. If the recognition service isn't running, the guest is saved and loaded when it starts. Set `PRAESENS_RECOGNITION_URL` if it isn't at `http://localhost:8001`.
 - **Camera:** the recognition service starts the camera when it starts. Set `PRAESENS_CAMERA_AUTOSTART=0` to start it by hand instead.

@@ -95,6 +95,7 @@
   .pill.ok { background: var(--ok-bg); color: var(--ok); }
   .pill.warn { background: var(--warn-bg); color: var(--warn); }
   .pill.bad { background: var(--bad-bg); color: var(--bad); }
+  .pill.idle { background: var(--bg); color: var(--muted); }
   .list-head { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
   .list-head h2 { margin: 0; flex: none; }
   .list-head input { flex: 1; }
@@ -214,6 +215,7 @@ let live = false;       // whether the Photo frame is showing the live camera
 let guests = [];        // [{id, first_name, last_name, bio}]
 let enrolled = new Set();
 let recognitionOnline = false;
+let present = new Set();  // guest ids the camera can see right now
 
 // ---- Enrollment panel: collapsed to a button until opened ----
 
@@ -401,7 +403,10 @@ function guestCard(g) {
   if (!recognitionOnline) {
     status.append(el("span", "pill warn", "Waiting"));
   } else if (enrolled.has(g.id)) {
-    status.append(el("span", "pill ok", "Recognized"));
+    // Green while the camera can see the guest, grey otherwise.
+    const tag = el("span", presenceClass(g.id), "Recognized");
+    tag.dataset.presence = g.id;
+    status.append(tag);
   } else {
     const retry = el("button", "small", "Retry");
     retry.type = "button";
@@ -480,9 +485,26 @@ function listenForGuests() {
   ws.onmessage = (e) => {
     const event = JSON.parse(e.data);
     if (event.type === "guest_detected") showPopup(event);
+    if (event.type === "presence") setPresent(event.guest_ids.map(Number));
   };
   // Reconnect if the recognition service restarts.
-  ws.onclose = () => setTimeout(listenForGuests, 3000);
+  ws.onclose = () => {
+    setPresent([]);
+    setTimeout(listenForGuests, 3000);
+  };
+}
+
+// Updates the Recognition tags in place, so the list doesn't redraw several
+// times a second as guests come and go.
+function setPresent(ids) {
+  present = new Set(ids);
+  for (const tag of document.querySelectorAll("[data-presence]")) {
+    tag.className = presenceClass(Number(tag.dataset.presence));
+  }
+}
+
+function presenceClass(id) {
+  return present.has(id) ? "pill ok" : "pill idle";
 }
 
 async function showPopup(event) {

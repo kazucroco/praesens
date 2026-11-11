@@ -23,6 +23,7 @@ class ConfigPatch(BaseModel):
     match_threshold: float | None = None
     review_threshold: float | None = None
     cooldown_seconds: float | None = None
+    presence_seconds: float | None = None
     confirm_frames: int | None = None
     min_det_score: float | None = None
     min_face_px: int | None = None
@@ -131,9 +132,12 @@ def build_router(engine: FaceEngine, prefix: str = "/faces") -> APIRouter:
     @r.websocket("/events")
     async def events(ws: WebSocket) -> None:
         """Pushes {"type": "guest_detected", "guest_id": ..., "status": ...,
-        "score": ..., "bbox": [...], "timestamp": ...} for each notification."""
+        "score": ..., "bbox": [...], "timestamp": ...} for each notification,
+        and {"type": "presence", "guest_ids": [...], "timestamp": ...} with the
+        guests in view, on connect and whenever that changes."""
         await ws.accept()
         q = engine.subscribe()
+        await ws.send_json(engine.presence())
         try:
             while True:
                 await ws.send_json(await q.get())
