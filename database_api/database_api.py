@@ -25,13 +25,6 @@ IMAGE_PATH = "./images/"
 RECOGNITION_URL = os.environ.get("PRAESENS_RECOGNITION_URL", "http://praesens_recognition:8001")
 RECOGNITION_TIMEOUT = 30.0
 
-# The staff enrollment app (api/staff/) is served at /staff/.
-STAFF_APP_PATH = Path(__file__).parent / "staff"
-
-@app.get("/", include_in_schema=False)
-def root():
-    return RedirectResponse("/staff/")
-
 @app.get(API_VERSION)
 def hello():
     return {"message": "Hello world!"}
@@ -276,6 +269,3 @@ def __check_create_table():
                     photo_path TEXT
                 )
             """)
-
-# Mounted last so it doesn't shadow the API routes above.
-app.mount("/staff", StaticFiles(directory=STAFF_APP_PATH, html=True), name="staff")

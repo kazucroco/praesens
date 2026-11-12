@@ -5,9 +5,6 @@ WORKDIR /database_api
 COPY requirements.txt . 
 COPY database_api.py .
 
-# Web server will probably be moved elsewhere at some point...
-COPY staff/ ./staff
-
 EXPOSE 8000
 
 RUN pip install --no-cache-dir --upgrade pip

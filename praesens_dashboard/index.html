@@ -145,7 +145,7 @@
 </head>
 <body>
 <header>
-  <h1>Praesens <span>Guest enrollment</span></h1>
+  <h1>Praesens <span>Guest Enrollment</span></h1>
   <span id="recog-status" class="pill warn">Checking recognition…</span>
 </header>
 
@@ -204,10 +204,10 @@
 <div id="popups" class="popups" aria-live="polite"></div>
 
 <script>
+// Since Caddy handles the proxying, the ports here are ommitted, and
+// location.host is used instead of hostname and hardcoded ports.
 const API = "/api/v1/";
-// The recognition service owns the camera. It runs on port 8001 of the same
-// machine as the API, so this works from other devices on the network too.
-const RECOGNITION = `${location.protocol}//${location.hostname}:8001/faces/`;
+const RECOGNITION = `${location.protocol}//${location.host}/faces/`;
 const $ = (id) => document.getElementById(id);
 
 let photoBlob = null;   // JPEG of the current photo

@@ -3,6 +3,10 @@
 		reverse_proxy praesens_db_api:8000
 	}
 
+	handle /faces/* {
+		reverse_proxy praesens_recognition:8001
+	}
+
 	handle {
 		root * /var/www/html
 		file_server
