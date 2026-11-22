@@ -39,6 +39,12 @@ services:
       dockerfile: Dockerfile
     image: praesens_recognition:latest
     restart: unless-stopped
+    # This method of passing the webcam into the container doesn't work on 
+    # macOS or Windows (even under WSL). The recognition server just has to be
+    # run baremetal as it was before the Docker implementation.
+    # You should be able to run `docker-compose up -d praesens_db praesens_db_api praesens_proxy`
+    # to only start the appropriate containers. There are fallbacks in Caddy 
+    # to access servers running on the host if the container is not found.
     devices:
       - /dev/video0:/dev/video0:rwm
     privileged: true
