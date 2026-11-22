@@ -36,17 +36,6 @@ def build_router(engine: FaceEngine, prefix: str = "/faces") -> APIRouter:
 
     # Plain `def` endpoints run in FastAPI's thread pool, so model inference
     # doesn't block the event loop.
-
-    @r.post("/guests/{guest_id}/enroll")
-    def enroll(guest_id: str, photos: list[UploadFile] = File(...)) -> dict[str, Any]:
-        """Enroll (or re-enroll) a guest. Each photo must contain exactly one face."""
-        data = [p.file.read() for p in photos]
-        try:
-            n = engine.enroll(guest_id, data)
-        except EnrollmentError as e:
-            raise HTTPException(422, str(e))
-        return {"guest_id": guest_id, "vectors": n}
-
     @r.delete("/guests/{guest_id}")
     def remove(guest_id: str) -> dict[str, Any]:
         n = engine.remove(guest_id)
