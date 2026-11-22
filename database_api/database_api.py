@@ -50,7 +50,7 @@ async def enroll_user(
     with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO users (first_name, last_name, bio, photo_path)
+                INSERT INTO users (first_name, last_name, bio, image_path)
                 VALUES (%s, %s, %s, 'temp')
                 RETURNING id
             """, (first_name, last_name, bio))
@@ -72,7 +72,7 @@ async def enroll_user(
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE users
-                SET photo_path = %s
+                SET image_path = %s
                 WHERE id = %s
             """, (file_path, user_id))
 
@@ -132,7 +132,7 @@ def get_all_users():
                 user_bio = user[3]
                 user_image_path = user[4]
 
-                response[user_id] = {
+                response[str(user_id)] = {
                     "first_name": user_first_name,
                     "last_name": user_last_name,
                     "bio": user_bio,
@@ -266,6 +266,6 @@ def __check_create_table():
                     first_name VARCHAR(30),
                     last_name  VARCHAR(30),
                     bio        TEXT,
-                    photo_path TEXT
+                    image_path TEXT
                 )
             """)
