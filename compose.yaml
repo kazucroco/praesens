@@ -43,7 +43,7 @@ services:
       - /dev/video0:/dev/video0:rwm
     privileged: true
     group_add:
-      - keep-groups
+      - "video"
     networks:
       - praesens_net
     ports:
