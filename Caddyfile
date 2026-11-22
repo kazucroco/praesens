@@ -1,0 +1,30 @@
+{$HOST_HOSTNAME}.local {
+	handle /api/v1/* {
+		reverse_proxy {
+			to praesens_db_api:8000
+			to host.docker.internal:8000
+			to host.containers.internal:8000
+
+			lb_policy first
+			lb_try_duration 5s
+			fail_duration 10s
+		}
+	}
+
+	handle /faces/* {
+		reverse_proxy {
+			to praesens_recognition:8001
+			to host.docker.internal:8001
+			to host.containers.internal:8001
+
+			lb_policy first
+			lb_try_duration 5s
+			fail_duration 10s
+		}
+	}
+
+	handle {
+		root * /var/www/html
+		file_server
+	}
+}

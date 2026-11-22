@@ -28,6 +28,8 @@ services:
       - "8000:8000"
     volumes:
       - ./images:/database_api/images:rw,z,U
+    depends_on:
+      - praesens_db
 
   praesens_recognition:
     container_name: praesens_recognition
@@ -37,11 +39,17 @@ services:
       dockerfile: Dockerfile
     image: praesens_recognition:latest
     restart: unless-stopped
+    # This method of passing the webcam into the container doesn't work on 
+    # macOS or Windows (even under WSL). The recognition server just has to be
+    # run baremetal as it was before the Docker implementation.
+    # You should be able to run `docker-compose up -d praesens_db praesens_db_api praesens_proxy`
+    # to only start the appropriate containers. There are fallbacks in Caddy 
+    # to access servers running on the host if the container is not found.
     devices:
       - /dev/video0:/dev/video0:rwm
     privileged: true
     group_add:
-      - keep-groups
+      - "video"
     networks:
       - praesens_net
     ports:
@@ -50,9 +58,31 @@ services:
       - ./images:/recognition/images:ro,z
     environment:
       PRAESENS_API_URL: http://praesens_db_api:8000/api/v1
+    depends_on:
+      - praesens_db_api
+
+  praesens_proxy:
+    container_name: praesens_proxy
+    tty: true
+    image: caddy:2.11
+    restart: unless-stopped
+    networks:
+      - praesens_net
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:Z
+      - ./praesens_dashboard/:/var/www/html:Z
+      - praesens_proxy_data:/data
+      - praesens_proxy_config:/config
+    environment:
+      HOST_HOSTNAME: ${HOSTNAME}
 
 volumes:
   praesens_db_data:
+  praesens_proxy_data:
+  praesens_proxy_config:
 
 networks:
   praesens_net:
