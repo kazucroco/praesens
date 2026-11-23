@@ -4,18 +4,29 @@ from pathlib import Path
 from typing import Annotated
 
 import httpx
-from fastapi import FastAPI, File, Form, UploadFile, HTTPException
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException, Depends
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 import psycopg
 
+import secrets
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
+
 app = FastAPI()
+security = HTTPBearer()
+
+DB_HOST = os.environ.get("DB_HOST", "localhost")
+
+INTERNAL_ADMIN_UN = os.environ.get("INTERNAL_ADMIN_UN", "praesens")
+INTERNAL_ADMIN_PW = os.environ.get("INTERNAL_ADMIN_PW", "changeme")
 
 API_VERSION = "/api/v1/"
 DB_CONNECTION_PARAMS = os.environ.get(
-    "PRAESENS_DB",
-    "host=praesens_db port=5432 dbname=praesens user=praesens password=praesens"
+    "PRAESENS_DB_CONNECTION_PARAMS",
+    f"host={DB_HOST} port=5432 dbname=praesens user=praesens password=praesens"
 )
 
 IMAGE_PATH = "./images/"
@@ -25,9 +36,96 @@ IMAGE_PATH = "./images/"
 RECOGNITION_URL = os.environ.get("PRAESENS_RECOGNITION_URL", "http://praesens_recognition:8001")
 RECOGNITION_TIMEOUT = 30.0
 
+class User(BaseModel):
+    username: str
+    password: str
+
 @app.get(API_VERSION)
 def hello():
     return {"message": "Hello world!"}
+
+# Request a token from the server
+@app.post(API_VERSION + "login")
+def login(user: User):
+    username = user.username
+    password = user.password
+
+    if len(username) > 30:
+        raise HTTPException(
+            status_code=400,
+            detail="Username must be less than 30 characters."
+        )
+
+    __check_create_admin_table()
+
+    ph = PasswordHasher()
+
+    token = None
+
+    with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT * FROM admins WHERE username = %s
+            """, (username,))
+
+            admin = cur.fetchone()
+
+            if admin == None or not ph.verify(admin[2], password):
+                raise HTTPException(
+                    status_code=401,
+                    detail="Unauthorized user"
+                )
+
+            token = secrets.token_urlsafe(32)
+            hashed_token = ph.hash(token)
+
+            cur.execute("""
+                UPDATE admins
+                SET tokens = array_append(tokens, %s)
+                WHERE username = %s
+            """, (hashed_token, username))
+
+    return { "access_token": token, "token_type": "bearer"}
+
+# Verify token
+@app.post(API_VERSION + "validate")
+def verify(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    scheme = credentials.scheme
+
+    __check_create_admin_table()
+
+    tokens_all = None
+
+    with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT tokens FROM admins
+            """)
+
+            tokens_all = cur.fetchall()[0]
+
+    ph = PasswordHasher()
+
+    for user_tokens_hashed in tokens_all:
+        for hashed_token in user_tokens_hashed:
+            try:
+                ph.verify(hashed_token, token)
+                return True
+            except:
+                pass
+
+    raise HTTPException(
+        status_code=401,
+        detail="Unauthorized"
+    )
+
+@app.post(API_VERSION + "logout")
+def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    scheme = credentials.scheme
+
+
 
 # Insert a new user into the table
 @app.post(API_VERSION + "enroll/")
@@ -44,7 +142,7 @@ async def enroll_user(
             detail="Invalid file type. Please upload a JPEG."
         )
 
-    __check_create_table()
+    __check_create_user_table()
 
     # Insert user into the table and retreive newly created ID.
     with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
@@ -52,7 +150,7 @@ async def enroll_user(
             cur.execute("""
                 INSERT INTO users (first_name, last_name, bio, image_path)
                 VALUES (%s, %s, %s, 'temp')
-                RETURNING id
+                RETURNING user_id
             """, (first_name, last_name, bio))
 
             user_id = cur.fetchone()[0]
@@ -73,7 +171,7 @@ async def enroll_user(
             cur.execute("""
                 UPDATE users
                 SET image_path = %s
-                WHERE id = %s
+                WHERE user_id = %s
             """, (file_path, user_id))
 
     # Tell the recognition service to load the new guest. If the photo has no
@@ -116,7 +214,7 @@ def get_all_users():
     with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
         with conn.cursor() as cur:
 
-            __check_create_table()
+            __check_create_user_table()
 
             cur.execute("""
                 SELECT * FROM users
@@ -147,10 +245,10 @@ def get_user_by_id(user_id: int):
     with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
         with conn.cursor() as cur:
 
-            __check_create_table()
+            __check_create_user_table()
 
             cur.execute("""
-                SELECT * FROM users WHERE id = %s
+                SELECT * FROM users WHERE user_id = %s
             """, (user_id,))
 
             user = cur.fetchone()
@@ -227,14 +325,14 @@ async def __recognition_sync(user_id: int):
 
 # Deletes a user's row and photo folder. Returns False if the user didn't exist.
 def __delete_user_records(user_id: int):
-    __check_create_table()
+    __check_create_user_table()
 
     with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 DELETE FROM users
-                WHERE id = %s
-                RETURNING id
+                WHERE user_id = %s
+                RETURNING user_id
             """, (user_id,))
 
             deleted = cur.fetchone() is not None
@@ -243,7 +341,7 @@ def __delete_user_records(user_id: int):
     return deleted
 
 # Creates the user table if it does not already exist.
-def __check_create_table():
+def __check_create_user_table():
     with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -262,10 +360,73 @@ def __check_create_table():
 
             cur.execute("""
                 CREATE TABLE users (
-                    id SERIAL PRIMARY KEY,
+                    user_id SERIAL PRIMARY KEY,
                     first_name VARCHAR(30),
                     last_name  VARCHAR(30),
                     bio        TEXT,
                     image_path TEXT
+                )
+            """)
+
+# Creates the admin table if it does not already exist.
+def __check_create_admin_table():
+    with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                    AND table_name = 'admins'
+                )
+            """)
+
+            result = cur.fetchone()
+
+            if result[0]:
+                return
+
+            cur.execute("""
+                CREATE TABLE admins (
+                    admin_id SERIAL PRIMARY KEY,
+                    username VARCHAR(16) UNIQUE,
+                    passhash TEXT,
+                    tokens TEXT[]
+                )
+            """)
+
+            ph = PasswordHasher()
+            passhash = ph.hash(INTERNAL_ADMIN_PW)
+
+            # This is the default admin user used internally.
+            cur.execute("""
+                INSERT INTO admins (username, passhash)
+                VALUES (%s, %s)
+                RETURNING admin_id
+            """, (INTERNAL_ADMIN_UN, passhash))
+
+# Creates the ActivityLog table if it does not already exist.
+def __check_create_activitylog_table():
+    with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                    AND table_name = 'activityLog'
+                )
+            """)
+
+            result = cur.fetchone()
+
+            if result[0]:
+                return
+
+            cur.execute("""
+                CREATE TABLE activityLog (
+                    event_id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
+                    timestamp TIMESTAMPTZ
                 )
             """)

@@ -1,9 +1,16 @@
+x-common-env: &common-env
+  INTERNAL_ADMIN_UN: praesens
+  INTERNAL_ADMIN_PW: changeme
+
 services:
   praesens_db:
     container_name: praesens_db
     image: postgres:18
     tty: true
     restart: unless-stopped
+    # Uncomment these to publish the database ports. Not recommended for
+    # deployment, but necessary if the DB API is being run outside of the
+    # container and needs to be accessed from the host.
     # ports:
     #   - 5432:5432
     volumes:
@@ -30,6 +37,9 @@ services:
       - ./images:/database_api/images:rw,z,U
     depends_on:
       - praesens_db
+    environment:
+        DB_HOST: praesens_db
+        <<: *common-env
 
   praesens_recognition:
     container_name: praesens_recognition
@@ -58,6 +68,7 @@ services:
       - ./images:/recognition/images:ro,z
     environment:
       PRAESENS_API_URL: http://praesens_db_api:8000/api/v1
+      <<: *common-env
     depends_on:
       - praesens_db_api
 
