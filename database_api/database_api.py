@@ -95,37 +95,38 @@ def verify(credentials: HTTPAuthorizationCredentials = Depends(security)):
 
     __check_create_admin_table()
 
-    tokens_all = None
-
-    with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT tokens FROM admins
-            """)
-
-            tokens_all = cur.fetchall()[0]
-
-    ph = PasswordHasher()
-
-    for user_tokens_hashed in tokens_all:
-        for hashed_token in user_tokens_hashed:
-            try:
-                ph.verify(hashed_token, token)
-                return True
-            except:
-                pass
-
-    raise HTTPException(
+    if __find_hashed_token(token) == None:
+        raise HTTPException(
         status_code=401,
         detail="Unauthorized"
     )
+
+    return True
 
 @app.post(API_VERSION + "logout")
 def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
     scheme = credentials.scheme
 
+    __check_create_admin_table()
 
+    hashed_token = __find_hashed_token(token)
+
+    if hashed_token == None:
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized"
+        )
+
+    with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE admins
+                SET tokens = array_remove(tokens, %s)
+                WHERE tokens @> ARRAY[%s]
+            """, (hashed_token, hashed_token))
+
+    return None
 
 # Insert a new user into the table
 @app.post(API_VERSION + "enroll/")
@@ -430,3 +431,27 @@ def __check_create_activitylog_table():
                     timestamp TIMESTAMPTZ
                 )
             """)
+
+# Given a raw token, find its stored hash in the table and return the hash or None.
+def __find_hashed_token(token: str):
+    tokens_all = None
+
+    with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT tokens FROM admins
+            """)
+
+            tokens_all = cur.fetchall()[0]
+
+    ph = PasswordHasher()
+
+    for user_tokens_hashed in tokens_all:
+        for hashed_token in user_tokens_hashed:
+            try:
+                ph.verify(hashed_token, token)
+                return hashed_token
+            except:
+                pass
+
+    return None
