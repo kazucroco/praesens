@@ -15,6 +15,8 @@ import secrets
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 
+from datetime import datetime, timezone
+
 app = FastAPI()
 security = HTTPBearer()
 
@@ -36,9 +38,19 @@ IMAGE_PATH = "./images/"
 RECOGNITION_URL = os.environ.get("PRAESENS_RECOGNITION_URL", "http://praesens_recognition:8001")
 RECOGNITION_TIMEOUT = 30.0
 
+# Expected body schema for login endpoint
 class User(BaseModel):
     username: str
     password: str
+
+# Expected body schema for log submission endpoint
+class UserID(BaseModel):
+    user_id: int
+
+# Expected body schema for log pull endpoint
+class LogBulkParams(BaseModel):
+    limit: int | None = 500
+    offset: int | None = 0
 
 @app.get(API_VERSION)
 def hello():
@@ -127,6 +139,90 @@ def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
             """, (hashed_token, hashed_token))
 
     return None
+
+@app.post(API_VERSION + "log/submit")
+def submit_log(user_id: UserID):
+    __check_create_activitylog_table()
+
+    timestamp_now = datetime.now(timezone.utc)
+
+    print(user_id.user_id)
+    print(timestamp_now)
+
+    with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO activitylog (user_id, timestamp)
+                VALUES (%s, %s)
+                RETURNING *
+            """, (user_id.user_id, timestamp_now))
+
+            out = cur.fetchone()
+
+            return {
+                "event_id": out[0],
+                "user_id": out[1],
+                "timestamp": out[2]
+            }
+
+@app.get(API_VERSION + "log/{event_id}")
+def get_one_log(event_id: int):
+    __check_create_activitylog_table()
+
+    with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT * FROM activitylog
+                WHERE event_id = %s
+            """, (event_id,))
+
+            out = cur.fetchone()
+
+            if out == None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="User does not exist"
+                )
+
+            return {
+                "event_id": out[0],
+                "user_id": out[1],
+                "timestamp": out[2]
+            }
+
+@app.post(API_VERSION + "log")
+def get_bulk_logs(params: LogBulkParams):
+    limit = params.limit
+    offset = params.offset
+
+    if limit > 500:
+        limit = 500
+
+    __check_create_activitylog_table()
+
+    with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT * FROM activitylog
+                ORDER BY timestamp DESC
+                LIMIT %s OFFSET %s
+             """, (limit, offset))
+
+            all_logs = cur.fetchall()
+            response = {}
+
+            for event in all_logs:
+                event_id = event[0]
+                event_user = event[1]
+                event_time = event[2]
+
+                response[str(event_id)] = {
+                    "event_id": event_id,
+                    "user_id": event_user,
+                    "timestamp": event_time
+                }
+
+            return response
 
 # Insert a new user into the table
 @app.post(API_VERSION + "enroll/")
@@ -415,7 +511,7 @@ def __check_create_activitylog_table():
                     SELECT 1
                     FROM information_schema.tables
                     WHERE table_schema = 'public'
-                    AND table_name = 'activityLog'
+                    AND table_name = 'activitylog'
                 )
             """)
 
@@ -425,7 +521,7 @@ def __check_create_activitylog_table():
                 return
 
             cur.execute("""
-                CREATE TABLE activityLog (
+                CREATE TABLE activitylog (
                     event_id SERIAL PRIMARY KEY,
                     user_id INTEGER,
                     timestamp TIMESTAMPTZ
