@@ -6,7 +6,6 @@ services:
   praesens_db:
     container_name: praesens_db
     image: postgres:18
-    tty: true
     restart: unless-stopped
     # Uncomment these to publish the database ports. Not recommended for
     # deployment, but necessary if the DB API is being run outside of the
@@ -23,7 +22,6 @@ services:
 
   praesens_db_api:
     container_name: praesens_db_api
-    tty: true
     build:
       context: ./database_api/
       dockerfile: Dockerfile
@@ -43,7 +41,6 @@ services:
 
   praesens_recognition:
     container_name: praesens_recognition
-    tty: true
     build:
       context: ./recognition/
       dockerfile: Dockerfile
@@ -74,7 +71,6 @@ services:
 
   praesens_proxy:
     container_name: praesens_proxy
-    tty: true
     image: caddy:2.11
     restart: unless-stopped
     networks:
