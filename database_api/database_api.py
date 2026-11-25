@@ -323,6 +323,8 @@ def delete_user(
     # Does nothing if found or raises a 401 if Unauthorized
     verify(credentials)
 
+    ext_headers = __unwrap_credentials(credentials)
+
     if not __delete_user_records(user_id):
         raise HTTPException(
             status_code=404,
@@ -333,7 +335,7 @@ def delete_user(
     # guest was never enrolled there, and if it's offline it won't load the
     # guest again on its next start anyway.
     try:
-        httpx.delete(f"{RECOGNITION_URL}/faces/guests/{user_id}", timeout=RECOGNITION_TIMEOUT)
+        httpx.delete(f"{RECOGNITION_URL}/faces/guests/{user_id}", headers=ext_headers, timeout=RECOGNITION_TIMEOUT)
     except httpx.HTTPError:
         pass
 
