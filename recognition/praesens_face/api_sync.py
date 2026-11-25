@@ -10,11 +10,16 @@ from __future__ import annotations
 import json
 import logging
 import urllib.request
+import requests
 from pathlib import Path
 from typing import Any, Iterator
 
+import os
+
 log = logging.getLogger("praesens_face.api_sync")
 
+INTERNAL_ADMIN_UN = os.environ.get("INTERNAL_ADMIN_UN", "praesens")
+INTERNAL_ADMIN_PW = os.environ.get("INTERNAL_ADMIN_PW", "changeme")
 
 class ApiClient:
     def __init__(self, api_url: str, photo_root: str = ".", timeout: float = 10.0):
@@ -22,8 +27,12 @@ class ApiClient:
         self.photo_root = Path(photo_root)
         self.timeout = timeout
 
+        self.headers = {}
+        self.get_token(INTERNAL_ADMIN_UN, INTERNAL_ADMIN_PW)
+
     def _get_json(self, path: str) -> Any:
-        with urllib.request.urlopen(self.api_url + path, timeout=self.timeout) as resp:
+        req = urllib.request.Request(self.api_url + path, headers=self.headers)
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             return json.load(resp)
 
     def users(self) -> dict[str, dict[str, Any]]:
@@ -38,7 +47,7 @@ class ApiClient:
         if not image_path or image_path.lower() == "none":
             raise FileNotFoundError("user has no photo")
         if image_path.startswith(("http://", "https://")):
-            with urllib.request.urlopen(image_path, timeout=self.timeout) as resp:
+            with urllib.request.urlopen(image_path, headers=self.headers, timeout=self.timeout) as resp:
                 return resp.read()
         p = Path(image_path)
         if not p.is_absolute():
@@ -58,3 +67,26 @@ class ApiClient:
 
     def iter_guest(self, user_id: str) -> Iterator[bytes]:
         yield self.read_photo(self.user(user_id).get("image_path"))
+
+    def validate_headers(ext_headers: dict):
+        response = requests.post(api_url + "validate/", headers=ext_headers, timeout=10)
+        is_valid = False
+        is_valid = response.json() is True
+
+        return is_valid
+
+
+    def get_token(self, username: str, password: str):
+        payload = {"username": username, "password": password}
+
+        response = requests.post(self.api_url + "login/", json=payload, timeout=10)
+        response.raise_for_status()
+
+        data = response.json()
+
+        token = data.get("access_token")
+
+        self.headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json"
+        }

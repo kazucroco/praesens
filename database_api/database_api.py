@@ -38,6 +38,8 @@ IMAGE_PATH = "./images/"
 RECOGNITION_URL = os.environ.get("PRAESENS_RECOGNITION_URL", "http://praesens_recognition:8001")
 RECOGNITION_TIMEOUT = 30.0
 
+SELF_API_CLIENT_TOKEN = None
+
 # Expected body schema for login endpoint
 class User(BaseModel):
     username: str
@@ -141,7 +143,14 @@ def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
     return None
 
 @app.post(API_VERSION + "log/submit")
-def submit_log(user_id: UserID):
+def submit_log(
+    user_id: UserID,
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+    ):
+
+    # Does nothing if found or raises a 401 if Unauthorized
+    verify(credentials)
+
     __check_create_activitylog_table()
 
     timestamp_now = datetime.now(timezone.utc)
@@ -166,8 +175,14 @@ def submit_log(user_id: UserID):
             }
 
 @app.get(API_VERSION + "log/{event_id}")
-def get_one_log(event_id: int):
+def get_one_log(
+    event_id: int,
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+    ):
     __check_create_activitylog_table()
+
+    # Does nothing if found or raises a 401 if Unauthorized
+    verify(credentials)
 
     with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
         with conn.cursor() as cur:
@@ -191,7 +206,14 @@ def get_one_log(event_id: int):
             }
 
 @app.post(API_VERSION + "log")
-def get_bulk_logs(params: LogBulkParams):
+def get_bulk_logs(
+        params: LogBulkParams,
+        credentials: HTTPAuthorizationCredentials = Depends(security)
+    ):
+
+    # Does nothing if found or raises a 401 if Unauthorized
+    verify(credentials)
+
     limit = params.limit
     offset = params.offset
 
@@ -230,7 +252,12 @@ async def enroll_user(
     first_name: Annotated[str, Form()],
     last_name: Annotated[str, Form()],
     file: UploadFile,
-    bio: Annotated[str, Form()] = ""):
+    bio: Annotated[str, Form()] = "",
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+    ):
+
+    # Does nothing if found or raises a 401 if Unauthorized
+    verify(credentials)
 
     # Basic validation, done before anything is written.
     if file.content_type != "image/jpeg":
@@ -273,7 +300,7 @@ async def enroll_user(
 
     # Tell the recognition service to load the new guest. If the photo has no
     # usable face, undo the enrollment so staff can retake the photo.
-    recognition = await __recognition_sync(user_id)
+    recognition = await __recognition_sync(user_id, credentials)
     if recognition["status"] == "rejected":
         __delete_user_records(user_id)
         raise HTTPException(
@@ -282,13 +309,20 @@ async def enroll_user(
         )
 
     # Returns the newly created user as the response.
-    user = get_user_by_id(user_id)
+    user = get_user_by_id(user_id, credentials)
     user["recognition"] = recognition
     return user
 
 # User deletion endpoint
 @app.delete(API_VERSION + "users/{user_id}")
-def delete_user(user_id: int):
+def delete_user(
+    user_id: int,
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+    ):
+
+    # Does nothing if found or raises a 401 if Unauthorized
+    verify(credentials)
+
     if not __delete_user_records(user_id):
         raise HTTPException(
             status_code=404,
@@ -307,7 +341,10 @@ def delete_user(user_id: int):
 
 # Should return a list of all users, which will be used by the machine learning server upon startup to inload users.
 @app.get(API_VERSION + "users/")
-def get_all_users():
+def get_all_users(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    # Does nothing if found or raises a 401 if Unauthorized
+    verify(credentials)
+
     with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
         with conn.cursor() as cur:
 
@@ -338,7 +375,14 @@ def get_all_users():
 
 # Fetches a single user based on their user ID.
 @app.get(API_VERSION + "users/{user_id}")
-def get_user_by_id(user_id: int):
+def get_user_by_id(
+    user_id: int,
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+    ):
+
+    # Does nothing if found or raises a 401 if Unauthorized
+    verify(credentials)
+
     with psycopg.connect(DB_CONNECTION_PARAMS) as conn:
         with conn.cursor() as cur:
 
@@ -366,8 +410,15 @@ def get_user_by_id(user_id: int):
 
 # Returns a user's photo, used by the staff app and the dashboard.
 @app.get(API_VERSION + "users/{user_id}/photo")
-def get_user_photo(user_id: int):
-    user = get_user_by_id(user_id)
+def get_user_photo(
+    user_id: int,
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+    ):
+
+    # Does nothing if found or raises a 401 if Unauthorized
+    verify(credentials)
+
+    user = get_user_by_id(user_id, credentials)
     if not user["image_path"] or not os.path.isfile(user["image_path"]):
         raise HTTPException(
             status_code=404,
@@ -379,15 +430,26 @@ def get_user_photo(user_id: int):
 # Re-sends one user to the recognition service, e.g. if it was offline when
 # they enrolled.
 @app.post(API_VERSION + "users/{user_id}/sync")
-async def sync_user(user_id: int):
-    get_user_by_id(user_id)
-    return await __recognition_sync(user_id)
+async def sync_user(
+    user_id: int,
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+    ):
+    # Does nothing if found or raises a 401 if Unauthorized
+    verify(credentials)
+
+    get_user_by_id(user_id, credentials)
+    return await __recognition_sync(user_id, credentials)
 
 # Whether the recognition service is running, and which user IDs it has loaded.
 @app.get(API_VERSION + "recognition/")
-def get_recognition_status():
+def get_recognition_status(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    # Does nothing if found or raises a 401 if Unauthorized
+    verify(credentials)
+
+    ext_headers = __unwrap_credentials(credentials)
+
     try:
-        response = httpx.get(f"{RECOGNITION_URL}/faces/guests", timeout=RECOGNITION_TIMEOUT)
+        response = httpx.get(f"{RECOGNITION_URL}/faces/guests", headers=ext_headers, timeout=RECOGNITION_TIMEOUT)
         response.raise_for_status()
     except httpx.HTTPError:
         return {"online": False, "enrolled": []}
@@ -402,10 +464,14 @@ def get_recognition_status():
 # Returns {"status": "enrolled" | "rejected" | "offline", "detail": ...}.
 # It's async because the recognition service calls back into this API to read
 # the user, which would deadlock if this blocked the event loop.
-async def __recognition_sync(user_id: int):
+async def __recognition_sync(user_id: int, credentials):
+    verify(credentials)
+
+    ext_headers = __unwrap_credentials(credentials)
+
     try:
         async with httpx.AsyncClient(timeout=RECOGNITION_TIMEOUT) as client:
-            response = await client.post(f"{RECOGNITION_URL}/faces/guests/{user_id}/sync")
+            response = await client.post(f"{RECOGNITION_URL}/faces/guests/{user_id}/sync", headers=ext_headers)
     except httpx.HTTPError:
         return {
             "status": "offline",
@@ -551,3 +617,11 @@ def __find_hashed_token(token: str):
                 pass
 
     return None
+
+def __unwrap_credentials(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    scheme = credentials.scheme
+
+    header = { "Authorization": f"{scheme.capitalize()} {token}"}
+
+    return header

@@ -50,6 +50,7 @@
     padding: 14px 20px; background: var(--surface); border-bottom: 1px solid var(--border);
     position: sticky; top: 0; z-index: 2;
   }
+  .header-top { width: 100%; display: flex; justify-content: space-between; align-items: center; }
   header h1 { font-size: 18px; margin: 0; font-weight: 600; }
   header h1 span { color: var(--muted); font-weight: 400; }
   main {
@@ -59,7 +60,7 @@
   .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
   .panel h2 { font-size: 16px; margin: 0 0 14px; }
   label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 4px; }
-  input[type=text], textarea {
+  input[type=text], input[type=password], textarea {
     width: 100%; padding: 9px 10px; font: inherit; color: var(--text);
     background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
   }
@@ -110,7 +111,6 @@
   .guest .bio { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .guest .status { display: flex; gap: 6px; align-items: center; flex: none; }
   .guest img { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; background: var(--bg); flex: none; }
-  /* On phones the row is too narrow, so the name gets its own line. */
   @media (max-width: 520px) {
     .guest { flex-wrap: wrap; gap: 6px; padding: 8px 10px; }
     .guest img { width: 44px; height: 44px; }
@@ -122,7 +122,6 @@
   .empty { color: var(--muted); padding: 30px 0; text-align: center; }
   .hidden { display: none !important; }
 
-  /* Guest popups: stacked in the top-right corner until dismissed. */
   .popups {
     position: fixed; top: 16px; right: 16px; z-index: 10;
     display: flex; flex-direction: column; gap: 10px; width: min(360px, calc(100vw - 32px));
@@ -145,8 +144,27 @@
 </head>
 <body>
 <header>
-  <h1>Praesens <span>Guest Enrollment</span></h1>
+  <div class="header-top">
+    <h1>Praesens <span>Guest Enrollment</span></h1>
+    <button type="button" id="login-toggle-btn" class="small primary">Login</button>
+  </div>
   <span id="recog-status" class="pill warn">Checking recognition…</span>
+  
+  <form id="login-form" class="hidden" style="width: 100%; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);">
+    <div style="display: flex; gap: 8px; align-items: flex-end;">
+      <div class="field" style="margin-bottom:0; flex:1;">
+        <label for="login-user">Username</label>
+        <input id="login-user" type="text" required>
+      </div>
+      <div class="field" style="margin-bottom:0; flex:1;">
+        <label for="login-pass">Password</label>
+        <input id="login-pass" type="password" required>
+      </div>
+      <button type="submit" class="primary" id="login-submit-btn">Sign In</button>
+      <button type="button" id="logout-btn" class="danger hidden">Logout</button>
+    </div>
+    <div id="login-notice" class="notice hidden" style="margin-top: 8px;"></div>
+  </form>
 </header>
 
 <main>
@@ -204,20 +222,122 @@
 <div id="popups" class="popups" aria-live="polite"></div>
 
 <script>
-// Since Caddy handles the proxying, the ports here are ommitted, and
-// location.host is used instead of hostname and hardcoded ports.
 const API = "/api/v1/";
 const RECOGNITION = `${location.protocol}//${location.host}/faces/`;
 const $ = (id) => document.getElementById(id);
 
-let photoBlob = null;   // JPEG of the current photo
-let live = false;       // whether the Photo frame is showing the live camera
-let guests = [];        // [{id, first_name, last_name, bio}]
+let photoBlob = null;   
+let live = false;       
+let guests = [];        
 let enrolled = new Set();
 let recognitionOnline = false;
-let present = new Set();  // guest ids the camera can see right now
+let present = new Set();  
 
-// ---- Enrollment panel: collapsed to a button until opened ----
+// Token Management
+let bearerToken = localStorage.getItem("bearer_token") || "";
+
+function getAuthHeaders(extraHeaders = {}) {
+  const headers = { ...extraHeaders };
+  if (bearerToken) {
+    headers["Authorization"] = `Bearer ${bearerToken}`;
+  }
+  return headers;
+}
+
+// Helper to load authenticated images via fetch and blob URLs
+async function loadAuthenticatedImage(imgElement, url) {
+  try {
+    const res = await fetch(url, { headers: getAuthHeaders() });
+    if (!res.ok) throw new Error(`Failed to load image: ${res.status}`);
+    const blob = await res.blob();
+    if (imgElement.src) URL.revokeObjectURL(imgElement.src);
+    imgElement.src = URL.createObjectURL(blob);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+// ---- Login Handling ----
+
+$("login-toggle-btn").onclick = () => {
+  const form = $("login-form");
+  form.classList.toggle("hidden");
+  if (!form.classList.contains("hidden") && bearerToken) {
+    $("login-user").value = "••••••";
+    $("login-pass").value = "••••••";
+    $("login-user").disabled = true;
+    $("login-pass").disabled = true;
+    hide("login-submit-btn");
+    show("logout-btn");
+  } else {
+    $("login-user").disabled = false;
+    $("login-pass").disabled = false;
+    show("login-submit-btn");
+    hide("logout-btn");
+  }
+};
+
+$("logout-btn").onclick = () => {
+  bearerToken = "";
+  localStorage.removeItem("bearer_token");
+  $("login-form").reset();
+  $("login-user").disabled = false;
+  $("login-pass").disabled = false;
+  show("login-submit-btn");
+  hide("logout-btn");
+  notice("Logged out successfully.", "ok", "login-notice");
+  $("login-toggle-btn").textContent = "Login";
+  listenForGuests();
+  refresh();
+};
+
+$("login-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const username = $("login-user").value;
+  const password = $("login-pass").value;
+
+  $("login-submit-btn").disabled = true;
+  $("login-submit-btn").textContent = "Signing in...";
+
+  try {
+    // Explicitly unauthenticated per requirements ("except login")
+    const res = await fetch(API + "login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(detailText(data) || `Login failed with status ${res.status}`);
+    }
+    
+    bearerToken = data.token || data.access_token || data.bearer;
+    if (!bearerToken) {
+      throw new Error("No token returned from server.");
+    }
+
+    localStorage.setItem("bearer_token", bearerToken);
+    notice("Login successful!", "ok", "login-notice");
+    $("login-toggle-btn").textContent = "Logged In";
+    setTimeout(() => {
+      hide("login-form");
+      $("login-notice").classList.add("hidden");
+    }, 1500);
+    listenForGuests();
+    refresh();
+  } catch (err) {
+    notice("Login error: " + err.message, "bad", "login-notice");
+  } finally {
+    $("login-submit-btn").disabled = false;
+    $("login-submit-btn").textContent = "Sign In";
+  }
+};
+
+if (bearerToken) {
+  $("login-toggle-btn").textContent = "Logged In";
+}
+
+// ---- Enrollment panel ----
 
 $("open-btn").onclick = () => {
   hide("open-btn"); hide("enroll-notice"); show("enroll-form");
@@ -234,43 +354,107 @@ function closePanel() {
   hide("enroll-form"); show("open-btn");
 }
 
-// ---- Photo: taken from the recognition service's camera ----
+let streamAbortController = null;
 
-function startCamera() {
+// Authenticated camera stream using fetch reader to pass Authorization header
+async function startCamera() {
   clearPhoto();
   $("capture-btn").disabled = true;
   $("capture-btn").textContent = "Capture";
   $("photo-placeholder").textContent = "Connecting to camera…";
-  const img = $("live");
-  img.onload = () => {
-    if (!live) return;
-    show("live"); hide("photo-placeholder");
-    $("capture-btn").disabled = false;
-  };
-  img.onerror = () => {
-    if (!live) return;
-    stopCamera();
-    $("photo-placeholder").textContent = "The camera isn't available. Check that the recognition service is running.";
-    $("capture-btn").textContent = "Try again";
-    $("capture-btn").disabled = false;
-  };
+  
   live = true;
-  img.src = RECOGNITION + "stream?t=" + Date.now();
+  streamAbortController = new AbortController();
+
+  try {
+    const res = await fetch(RECOGNITION + "stream?t=" + Date.now(), {
+      headers: getAuthHeaders(),
+      signal: streamAbortController.signal
+    });
+    if (!res.ok) throw new Error(`Stream returned status ${res.status}`);
+    
+    const reader = res.body.getReader();
+    const img = $("live");
+    show("live");
+    hide("photo-placeholder");
+    $("capture-btn").disabled = false;
+
+    // Handle multipart/x-mixed-replace stream manually via chunks/blobs
+    const contentType = res.headers.get("content-type") || "";
+    // If it's a standard MJPEG stream boundary, parse parts or read chunks
+    let boundary = "--frame";
+    const match = contentType.match(/boundary=([^;]+)/i);
+    if (match) boundary = match[1];
+
+    let buffer = new Uint8Array(0);
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+
+    while (live) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      
+      // Accumulate chunks and extract JPEG frames
+      let newBuffer = new Uint8Array(buffer.length + value.length);
+      newBuffer.set(buffer);
+      newBuffer.set(value, buffer.length);
+      buffer = newBuffer;
+
+      // Search for JPEG start (FF D8) and end (FF D9) markers in buffer
+      let startIdx = -1;
+      let endIdx = -1;
+      for (let i = 0; i < buffer.length - 1; i++) {
+        if (buffer[i] === 0xFF && buffer[i+1] === 0xD8) {
+          startIdx = i;
+          break;
+        }
+      }
+      if (startIdx !== -1) {
+        for (let i = startIdx + 2; i < buffer.length - 1; i++) {
+          if (buffer[i] === 0xFF && buffer[i+1] === 0xD9) {
+            endIdx = i + 2;
+            break;
+          }
+        }
+      }
+
+      if (startIdx !== -1 && endIdx !== -1) {
+        const frameData = buffer.slice(startIdx, endIdx);
+        buffer = buffer.slice(endIdx); // remainder
+
+        const blob = new Blob([frameData], { type: "image/jpeg" });
+        if (img.src) URL.revokeObjectURL(img.src);
+        img.src = URL.createObjectURL(blob);
+      }
+    }
+  } catch (err) {
+    if (err.name !== "AbortError") {
+      stopCamera();
+      $("photo-placeholder").textContent = "The camera isn't available or unauthorized.";
+      $("capture-btn").textContent = "Try again";
+      $("capture-btn").disabled = false;
+    }
+  }
 }
 
 function stopCamera() {
   live = false;
-  // Clearing src closes the stream connection.
+  if (streamAbortController) {
+    streamAbortController.abort();
+    streamAbortController = null;
+  }
   $("live").removeAttribute("src");
   hide("live");
 }
 
-// Capture takes the photo; after that the same button retakes it.
 $("capture-btn").onclick = async () => {
   if (!live) { startCamera(); return; }
   $("capture-btn").disabled = true;
   try {
-    const res = await fetch(RECOGNITION + "camera/snapshot", { cache: "no-store" });
+    const res = await fetch(RECOGNITION + "camera/snapshot", { 
+      cache: "no-store",
+      headers: getAuthHeaders()
+    });
     if (!res.ok) throw new Error(`camera returned ${res.status}`);
     const blob = await res.blob();
     stopCamera();
@@ -312,7 +496,11 @@ $("enroll-form").onsubmit = async (e) => {
   $("submit-btn").disabled = true;
   $("submit-btn").textContent = "Enrolling…";
   try {
-    const res = await fetch(API + "enroll/", { method: "POST", body: form });
+    const res = await fetch(API + "enroll/", { 
+      method: "POST", 
+      headers: getAuthHeaders(),
+      body: form 
+    });
     const body = await res.json().catch(() => ({}));
     if (res.status === 422) {
       notice(`Photo not accepted (${detailText(body).replace(/\.$/, "")}). Please retake it.`, "bad");
@@ -349,8 +537,8 @@ function detailText(body) {
 
 async function refresh() {
   const [usersRes, recogRes] = await Promise.all([
-    fetch(API + "users/"),
-    fetch(API + "recognition/"),
+    fetch(API + "users/", { headers: getAuthHeaders() }),
+    fetch(API + "recognition/", { headers: getAuthHeaders() }),
   ]);
   const users = await usersRes.json();
   const recog = await recogRes.json();
@@ -384,7 +572,6 @@ function render() {
   list.replaceChildren(...shown.map(guestCard));
 }
 
-// One row per guest: name, recognition tag, photo, then Checkout.
 function guestCard(g) {
   const card = el("div", "guest");
 
@@ -403,7 +590,6 @@ function guestCard(g) {
   if (!recognitionOnline) {
     status.append(el("span", "pill warn", "Waiting"));
   } else if (enrolled.has(g.id)) {
-    // Green while the camera can see the guest, grey otherwise.
     const tag = el("span", presenceClass(g.id), "Recognized");
     tag.dataset.presence = g.id;
     status.append(tag);
@@ -416,9 +602,9 @@ function guestCard(g) {
   card.append(status);
 
   const img = el("img");
-  img.src = `${API}users/${g.id}/photo`;
   img.alt = `${g.first_name} ${g.last_name}`;
   img.loading = "lazy";
+  loadAuthenticatedImage(img, `${API}users/${g.id}/photo`);
   card.append(img);
 
   const del = el("button", "small danger", "Checkout");
@@ -435,7 +621,10 @@ function guestCard(g) {
 
 async function remove(g, btn) {
   btn.disabled = true;
-  const res = await fetch(`${API}users/${g.id}`, { method: "DELETE" });
+  const res = await fetch(`${API}users/${g.id}`, { 
+    method: "DELETE",
+    headers: getAuthHeaders()
+  });
   if (!res.ok) {
     btn.disabled = false;
     notice(`Couldn't check out ${g.first_name}: ${detailText(await res.json().catch(() => ({})))}`, "bad", "enroll-notice");
@@ -447,7 +636,10 @@ async function remove(g, btn) {
 async function resync(g, btn) {
   btn.disabled = true;
   btn.textContent = "Trying…";
-  const res = await fetch(`${API}users/${g.id}/sync`, { method: "POST" });
+  const res = await fetch(`${API}users/${g.id}/sync`, { 
+    method: "POST",
+    headers: getAuthHeaders()
+  });
   const body = await res.json().catch(() => ({}));
   if (body.status !== "enrolled") {
     notice(`${g.first_name} ${g.last_name}: ${body.detail ?? detailText(body)}`, "bad", "enroll-notice");
@@ -467,8 +659,7 @@ function el(tag, cls, text) {
 }
 function show(id) { $(id).classList.remove("hidden"); }
 function hide(id) { $(id).classList.add("hidden"); }
-// Shows a status message: under the Enroll button, or under the collapsed
-// panel's button when target is "enroll-notice".
+
 function notice(text, kind, target = "form-notice") {
   const n = $(target);
   n.textContent = text;
@@ -476,26 +667,38 @@ function notice(text, kind, target = "form-notice") {
 }
 function clearNotice() { $("form-notice").className = "notice hidden"; }
 
-// ---- Guest popups: one per "guest detected" event from recognition ----
+// ---- Guest popups & Authenticated WebSockets ----
 
+let ws = null;
 const MAX_POPUPS = 4;
 
 function listenForGuests() {
-  const ws = new WebSocket(RECOGNITION.replace(/^http/, "ws") + "events");
+  if (ws) {
+    ws.close();
+  }
+  const wsUrl = RECOGNITION.replace(/^http/, "ws") + "events";
+  
+  // Standard WebSockets in browsers don't support custom headers. 
+  // We pass the token via subprotocols array (e.g. ["bearer", token]) or fallback if accepted by server.
+  const protocols = bearerToken ? ["bearer", bearerToken] : undefined;
+  
+  try {
+    ws = new WebSocket(wsUrl, protocols);
+  } catch (err) {
+    ws = new WebSocket(wsUrl);
+  }
+
   ws.onmessage = (e) => {
     const event = JSON.parse(e.data);
     if (event.type === "guest_detected") showPopup(event);
     if (event.type === "presence") setPresent(event.guest_ids.map(Number));
   };
-  // Reconnect if the recognition service restarts.
   ws.onclose = () => {
     setPresent([]);
     setTimeout(listenForGuests, 3000);
   };
 }
 
-// Updates the Recognition tags in place, so the list doesn't redraw several
-// times a second as guests come and go.
 function setPresent(ids) {
   present = new Set(ids);
   for (const tag of document.querySelectorAll("[data-presence]")) {
@@ -508,14 +711,14 @@ function presenceClass(id) {
 }
 
 async function showPopup(event) {
-  const res = await fetch(`${API}users/${event.guest_id}`);
-  if (!res.ok) return;  // checked out since the event was sent
+  const res = await fetch(`${API}users/${event.guest_id}`, { headers: getAuthHeaders() });
+  if (!res.ok) return;  
   const g = await res.json();
 
   const card = el("div", event.status === "review" ? "popup review" : "popup");
   const img = el("img");
-  img.src = `${API}users/${g.id}/photo`;
   img.alt = `${g.first_name} ${g.last_name}`;
+  loadAuthenticatedImage(img, `${API}users/${g.id}/photo`);
   card.append(img);
 
   const info = el("div", "info");

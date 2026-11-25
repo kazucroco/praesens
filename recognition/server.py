@@ -15,11 +15,17 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+import requests, os
 
 from praesens_face import EnrollmentError, FaceEngine, build_router
 from praesens_face.api_sync import ApiClient
+
+security = HTTPBearer()
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("praesens_face.server")
@@ -27,6 +33,40 @@ log = logging.getLogger("praesens_face.server")
 engine = FaceEngine()
 api = ApiClient(engine.settings.api_url, engine.settings.photo_root)
 
+INTERNAL_ADMIN_UN = os.environ.get("INTERNAL_ADMIN_UN", "praesens")
+INTERNAL_ADMIN_PW = os.environ.get("INTERNAL_ADMIN_PW", "changeme")
+
+def _get_auth_headers(username: str, password: str):
+    payload = { "username": username, "password": password }
+    response = requests.post(engine.settings.api_url + "/login/", json=payload, timeout=10)
+
+    data = response.json()
+    token = None
+    try:
+        token = data.get("access_token")
+    except:
+        pass
+    headers = None
+
+    if token != None:
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json"
+        }
+
+    return headers
+
+def _test_auth_headers(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    ext_headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json"
+        }
+    resp = requests.post(engine.settings.api_url + "validate/", headers=ext_headers, timeout=10)
+
+    return resp.json()
+
+headers = _get_auth_headers(INTERNAL_ADMIN_UN, INTERNAL_ADMIN_PW)
 
 def sync_all() -> dict:
     """Rebuild the gallery from every user in the main API."""
@@ -61,8 +101,10 @@ app.include_router(build_router(engine))
 
 
 @app.post("/faces/sync")
-def sync() -> dict:
+def sync(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     """Reload every guest from the main API (e.g. after bulk changes)."""
+    _test_auth_headers(credentials)
+
     try:
         return sync_all()
     except OSError as e:
@@ -70,9 +112,14 @@ def sync() -> dict:
 
 
 @app.post("/faces/guests/{guest_id}/sync")
-def sync_one(guest_id: str) -> dict:
+def sync_one(
+    guest_id: str,
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+    ) -> dict:
     """Re-enroll one guest from their photo in the main API. The API (or the
     dashboard) calls this after creating a guest or changing their photo."""
+    _test_auth_headers(credentials)
+
     try:
         n = engine.enroll(guest_id, api.iter_guest(guest_id))
     except EnrollmentError as e:

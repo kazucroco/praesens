@@ -12,12 +12,15 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, Depends, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
+import requests
 
 from .engine import EnrollmentError, FaceEngine
 
+security = HTTPBearer()
 
 class ConfigPatch(BaseModel):
     match_threshold: float | None = None
@@ -30,14 +33,27 @@ class ConfigPatch(BaseModel):
     process_fps: float | None = None
     persist: bool = True
 
-
 def build_router(engine: FaceEngine, prefix: str = "/faces") -> APIRouter:
     r = APIRouter(prefix=prefix, tags=["faces"])
+
+    def _test_auth_headers(credentials: HTTPAuthorizationCredentials = Depends(security)):
+        token = credentials.credentials
+        ext_headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json"
+        }
+        resp = requests.post(engine.settings.api_url + "validate/", headers=ext_headers, timeout=10)
+
+        return resp.json()
 
     # Plain `def` endpoints run in FastAPI's thread pool, so model inference
     # doesn't block the event loop.
     @r.delete("/guests/{guest_id}")
-    def remove(guest_id: str) -> dict[str, Any]:
+    def remove(
+        guest_id: str,
+        credentials: HTTPAuthorizationCredentials = Depends(security)
+        ) -> dict[str, Any]:
+        _test_auth_headers(credentials)
         n = engine.remove(guest_id)
         if n == 0:
             raise HTTPException(404, "guest not enrolled")
@@ -45,12 +61,17 @@ def build_router(engine: FaceEngine, prefix: str = "/faces") -> APIRouter:
                 "gallery_fingerprint": engine.gallery.fingerprint()}
 
     @r.get("/guests")
-    def guests() -> dict[str, int]:
+    def guests(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict[str, int]:
+        _test_auth_headers(credentials)
         """Enrolled guest ids and how many photos each has."""
         return engine.gallery.guests()
 
     @r.post("/identify")
-    def identify(photo: UploadFile = File(...)) -> list[dict[str, Any]]:
+    def identify(
+        photo: UploadFile = File(...),
+        credentials: HTTPAuthorizationCredentials = Depends(security)
+        ) -> list[dict[str, Any]]:
+        _test_auth_headers(credentials)
         """Match every face in an uploaded image. Doesn't fire notifications;
         meant for testing and threshold tuning without the camera."""
         try:
@@ -60,11 +81,16 @@ def build_router(engine: FaceEngine, prefix: str = "/faces") -> APIRouter:
         return [vars(x) for x in results]
 
     @r.get("/config")
-    def get_config() -> dict[str, Any]:
+    def get_config(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict[str, Any]:
+        _test_auth_headers(credentials)
         return engine.settings.tunable()
 
     @r.patch("/config")
-    def patch_config(body: ConfigPatch) -> dict[str, Any]:
+    def patch_config(
+        body: ConfigPatch,
+        credentials: HTTPAuthorizationCredentials = Depends(security),
+        ) -> dict[str, Any]:
+        _test_auth_headers(credentials)
         """Change thresholds/cooldown live, e.g. {"match_threshold": 0.5}."""
         changes = body.model_dump(exclude_none=True)
         persist = changes.pop("persist", True)
@@ -77,21 +103,25 @@ def build_router(engine: FaceEngine, prefix: str = "/faces") -> APIRouter:
         return engine.settings.tunable()
 
     @r.get("/status")
-    def status() -> dict[str, Any]:
+    def get_status(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict[str, Any]:
+        _test_auth_headers(credentials)
         return engine.status()
 
     @r.post("/camera/start")
-    def camera_start() -> dict[str, Any]:
+    def camera_start(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict[str, Any]:
+        _test_auth_headers(credentials)
         engine.start_camera()
         return engine.camera.stats()
 
     @r.post("/camera/stop")
-    def camera_stop() -> dict[str, Any]:
+    def camera_stop(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict[str, Any]:
+        _test_auth_headers(credentials)
         engine.stop_camera()
         return {"running": False}
 
     @r.get("/camera/snapshot")
-    def camera_snapshot() -> Response:
+    def camera_snapshot(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Response:
+        _test_auth_headers(credentials)
         """The current camera frame as a JPEG, without boxes. Used to take
         enrollment photos while recognition keeps the camera."""
         cam = engine.camera
@@ -101,7 +131,8 @@ def build_router(engine: FaceEngine, prefix: str = "/faces") -> APIRouter:
         return Response(jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
     @r.get("/stream")
-    async def stream() -> StreamingResponse:
+    async def stream(credentials: HTTPAuthorizationCredentials = Depends(security)) -> StreamingResponse:
+        _test_auth_headers(credentials)
         """MJPEG preview with boxes drawn. Use as <img src="/faces/stream">."""
         cam = engine.camera
         if not cam or not cam.running:
@@ -120,10 +151,6 @@ def build_router(engine: FaceEngine, prefix: str = "/faces") -> APIRouter:
 
     @r.websocket("/events")
     async def events(ws: WebSocket) -> None:
-        """Pushes {"type": "guest_detected", "guest_id": ..., "status": ...,
-        "score": ..., "bbox": [...], "timestamp": ...} for each notification,
-        and {"type": "presence", "guest_ids": [...], "timestamp": ...} with the
-        guests in view, on connect and whenever that changes."""
         await ws.accept()
         q = engine.subscribe()
         await ws.send_json(engine.presence())
