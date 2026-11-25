@@ -89,6 +89,8 @@ services:
       - praesens_proxy_config:/config
     environment:
       HOST_HOSTNAME: ${HOSTNAME}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   praesens_db_data:
