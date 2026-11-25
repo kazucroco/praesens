@@ -205,7 +205,7 @@ def get_one_log(
                 "timestamp": out[2]
             }
 
-@app.post(API_VERSION + "log")
+@app.post(API_VERSION + "log/")
 def get_bulk_logs(
         params: LogBulkParams,
         credentials: HTTPAuthorizationCredentials = Depends(security)
@@ -339,7 +339,7 @@ def delete_user(
     except httpx.HTTPError:
         pass
 
-    return user_id
+    return { "deleted_id": user_id }
 
 # Should return a list of all users, which will be used by the machine learning server upon startup to inload users.
 @app.get(API_VERSION + "users/")
@@ -443,7 +443,7 @@ async def sync_user(
     return await __recognition_sync(user_id, credentials)
 
 # Whether the recognition service is running, and which user IDs it has loaded.
-@app.get(API_VERSION + "recognition/")
+@app.get(API_VERSION + "recognition")
 def get_recognition_status(credentials: HTTPAuthorizationCredentials = Depends(security)):
     # Does nothing if found or raises a 401 if Unauthorized
     verify(credentials)

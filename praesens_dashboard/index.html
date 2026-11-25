@@ -538,7 +538,7 @@ function detailText(body) {
 async function refresh() {
   const [usersRes, recogRes] = await Promise.all([
     fetch(API + "users/", { headers: getAuthHeaders() }),
-    fetch(API + "recognition/", { headers: getAuthHeaders() }),
+    fetch(API + "recognition", { headers: getAuthHeaders() }),
   ]);
   const users = await usersRes.json();
   const recog = await recogRes.json();
