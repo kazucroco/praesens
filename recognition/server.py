@@ -62,7 +62,7 @@ def _test_auth_headers(credentials: HTTPAuthorizationCredentials = Depends(secur
             "Authorization": f"Bearer {token}",
             "Accept": "application/json"
         }
-    resp = requests.post(engine.settings.api_url + "validate/", headers=ext_headers, timeout=10)
+    resp = requests.post(engine.settings.api_url + "/validate", headers=ext_headers, timeout=10)
 
     return resp.json()
 

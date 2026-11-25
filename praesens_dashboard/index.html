@@ -496,7 +496,7 @@ $("enroll-form").onsubmit = async (e) => {
   $("submit-btn").disabled = true;
   $("submit-btn").textContent = "Enrolling…";
   try {
-    const res = await fetch(API + "enroll/", { 
+    const res = await fetch(API + "enroll", {
       method: "POST", 
       headers: getAuthHeaders(),
       body: form 

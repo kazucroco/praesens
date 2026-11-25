@@ -42,7 +42,7 @@ def build_router(engine: FaceEngine, prefix: str = "/faces") -> APIRouter:
             "Authorization": f"Bearer {token}",
             "Accept": "application/json"
         }
-        resp = requests.post(engine.settings.api_url + "validate/", headers=ext_headers, timeout=10)
+        resp = requests.post(engine.settings.api_url + "/validate", headers=ext_headers, timeout=10)
 
         return resp.json()
 

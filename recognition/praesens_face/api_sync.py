@@ -69,7 +69,7 @@ class ApiClient:
         yield self.read_photo(self.user(user_id).get("image_path"))
 
     def validate_headers(ext_headers: dict):
-        response = requests.post(api_url + "validate/", headers=ext_headers, timeout=10)
+        response = requests.post(api_url + "validate", headers=ext_headers, timeout=10)
         is_valid = False
         is_valid = response.json() is True
 

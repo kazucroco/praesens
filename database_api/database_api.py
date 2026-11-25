@@ -247,7 +247,7 @@ def get_bulk_logs(
             return response
 
 # Insert a new user into the table
-@app.post(API_VERSION + "enroll/")
+@app.post(API_VERSION + "enroll")
 async def enroll_user(
     first_name: Annotated[str, Form()],
     last_name: Annotated[str, Form()],
