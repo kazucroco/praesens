@@ -20,10 +20,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-import requests, os
-
 from praesens_face import EnrollmentError, FaceEngine, build_router
 from praesens_face.api_sync import ApiClient
+from praesens_face.router import check_token
 
 security = HTTPBearer()
 
@@ -33,40 +32,9 @@ log = logging.getLogger("praesens_face.server")
 engine = FaceEngine()
 api = ApiClient(engine.settings.api_url, engine.settings.photo_root)
 
-INTERNAL_ADMIN_UN = os.environ.get("INTERNAL_ADMIN_UN", "praesens")
-INTERNAL_ADMIN_PW = os.environ.get("INTERNAL_ADMIN_PW", "changeme")
-
-def _get_auth_headers(username: str, password: str):
-    payload = { "username": username, "password": password }
-    response = requests.post(engine.settings.api_url + "/login/", json=payload, timeout=10)
-
-    data = response.json()
-    token = None
-    try:
-        token = data.get("access_token")
-    except:
-        pass
-    headers = None
-
-    if token != None:
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json"
-        }
-
-    return headers
-
 def _test_auth_headers(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    token = credentials.credentials
-    ext_headers = {
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json"
-        }
-    resp = requests.post(engine.settings.api_url + "/validate", headers=ext_headers, timeout=10)
+    check_token(engine.settings.api_url, credentials.credentials)
 
-    return resp.json()
-
-headers = _get_auth_headers(INTERNAL_ADMIN_UN, INTERNAL_ADMIN_PW)
 
 def sync_all() -> dict:
     """Rebuild the gallery from every user in the main API."""

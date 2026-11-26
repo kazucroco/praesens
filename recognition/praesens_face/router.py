@@ -33,18 +33,32 @@ class ConfigPatch(BaseModel):
     process_fps: float | None = None
     persist: bool = True
 
+def check_token(api_url: str, token: str, timeout: float = 10.0) -> None:
+    """Ask the main API whether a bearer token is valid. Raises 401 if not,
+    and fails closed (503/502) if the main API can't answer."""
+    url = api_url.rstrip("/") + "/validate"
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    try:
+        resp = requests.post(url, headers=headers, timeout=timeout)
+    except requests.RequestException as e:
+        raise HTTPException(503, f"cannot validate token, main API not reachable: {e}")
+    if resp.status_code in (401, 403):
+        raise HTTPException(401, "invalid or expired token", headers={"WWW-Authenticate": "Bearer"})
+    if resp.status_code != 200:
+        raise HTTPException(502, f"cannot validate token, main API returned {resp.status_code}")
+    try:
+        valid = resp.json() is True
+    except ValueError:
+        valid = False
+    if not valid:
+        raise HTTPException(401, "invalid or expired token", headers={"WWW-Authenticate": "Bearer"})
+
+
 def build_router(engine: FaceEngine, prefix: str = "/faces") -> APIRouter:
     r = APIRouter(prefix=prefix, tags=["faces"])
 
     def _test_auth_headers(credentials: HTTPAuthorizationCredentials = Depends(security)):
-        token = credentials.credentials
-        ext_headers = {
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json"
-        }
-        resp = requests.post(engine.settings.api_url + "/validate", headers=ext_headers, timeout=10)
-
-        return resp.json()
+        check_token(engine.settings.api_url, credentials.credentials)
 
     # Plain `def` endpoints run in FastAPI's thread pool, so model inference
     # doesn't block the event loop.

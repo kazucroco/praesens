@@ -28,9 +28,16 @@ class ApiClient:
         self.timeout = timeout
 
         self.headers = {}
-        self.get_token(INTERNAL_ADMIN_UN, INTERNAL_ADMIN_PW)
+        # Log in now if the main API is up; otherwise on first use, so the
+        # recognition service can start before the main API does.
+        try:
+            self.get_token(INTERNAL_ADMIN_UN, INTERNAL_ADMIN_PW)
+        except requests.RequestException as e:
+            log.warning("could not log in to the main API at %s: %s", self.api_url, e)
 
     def _get_json(self, path: str) -> Any:
+        if not self.headers:
+            self.get_token(INTERNAL_ADMIN_UN, INTERNAL_ADMIN_PW)
         req = urllib.request.Request(self.api_url + path, headers=self.headers)
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             return json.load(resp)
@@ -47,7 +54,10 @@ class ApiClient:
         if not image_path or image_path.lower() == "none":
             raise FileNotFoundError("user has no photo")
         if image_path.startswith(("http://", "https://")):
-            with urllib.request.urlopen(image_path, headers=self.headers, timeout=self.timeout) as resp:
+            # Only send our token to the main API, not to other photo hosts.
+            headers = self.headers if image_path.startswith(self.api_url) else {}
+            req = urllib.request.Request(image_path, headers=headers)
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 return resp.read()
         p = Path(image_path)
         if not p.is_absolute():
@@ -67,14 +77,6 @@ class ApiClient:
 
     def iter_guest(self, user_id: str) -> Iterator[bytes]:
         yield self.read_photo(self.user(user_id).get("image_path"))
-
-    def validate_headers(ext_headers: dict):
-        response = requests.post(api_url + "validate", headers=ext_headers, timeout=10)
-        is_valid = False
-        is_valid = response.json() is True
-
-        return is_valid
-
 
     def get_token(self, username: str, password: str):
         payload = {"username": username, "password": password}
