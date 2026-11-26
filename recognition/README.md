@@ -28,7 +28,7 @@ fastapi run recognition/server.py --port 8001
 
 The first start downloads buffalo_l (~280 MB) to `~/.insightface`. Then open http://localhost:8001/docs. Without a GPU, set `PRAESENS_CTX_ID=-1`.
 
-Run the tests with `pytest recognition/tests`.
+Run the tests with `pytest recognition/tests` (from the repo root, after `pip install -r recognition/requirements.txt`). They need no GPU, webcam, model download or running main API: a fake embedder stands in for InsightFace, a short generated video file stands in for the webcam, and `tests/conftest.py` starts a small fake of the main API's `/login`, `/validate` and `/users` endpoints on a free local port. `tests/test_real_model.py` is the one exception: it runs only when `insightface` is installed and downloads buffalo_l on first run.
 
 **Run it with one worker** (the default for `fastapi run`). Each worker would load its own model, hold its own gallery and fight over the webcam.
 

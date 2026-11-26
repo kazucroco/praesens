@@ -1,66 +1,14 @@
 """Fast tests with a fake embedder (no model download needed).
 
-A test image is a tiny PNG whose first pixel value selects which fake faces
-the embedder "detects" in it.
+The helpers (FakeEmbedder, ALICE, near, face, ...) are in conftest.py. The HTTP
+routes are tested in test_router.py.
 """
 
-import sys
-import time
-from contextlib import asynccontextmanager
-from pathlib import Path
-
-import cv2
 import numpy as np
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from conftest import ALICE, BOB, STRANGER, FakeEmbedder, face, near
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from praesens_face import EnrollmentError, FaceEngine, Settings, build_router  # noqa: E402
-from praesens_face.embedder import DetectedFace  # noqa: E402
-
-DIM = 512
-rng = np.random.default_rng(0)
-
-
-def unit(v):
-    return (v / np.linalg.norm(v)).astype(np.float32)
-
-
-ALICE = unit(rng.normal(size=DIM))
-BOB = unit(rng.normal(size=DIM))
-STRANGER = unit(rng.normal(size=DIM))
-
-
-def near(base, cos):
-    """A unit vector with cosine similarity `cos` to `base`."""
-    other = unit(rng.normal(size=DIM))
-    other = unit(other - other.dot(base) * base)
-    return unit(cos * base + np.sqrt(1 - cos ** 2) * other)
-
-
-def face(emb, score=0.9, size=100):
-    return DetectedFace((10, 10, 10 + size, 10 + size), score, emb)
-
-
-class FakeEmbedder:
-    dim = DIM
-
-    def __init__(self):
-        self.scenes: dict[int, list[DetectedFace]] = {}
-
-    def scene(self, key: int, faces: list[DetectedFace]) -> np.ndarray:
-        self.scenes[key] = faces
-        img = np.zeros((8, 8, 3), np.uint8)
-        img[0, 0, 0] = key
-        return img
-
-    def png(self, key, faces) -> bytes:
-        return cv2.imencode(".png", self.scene(key, faces))[1].tobytes()
-
-    def detect(self, img):
-        return self.scenes.get(int(img[0, 0, 0]), [])
+from praesens_face import EnrollmentError, FaceEngine, Settings
 
 
 @pytest.fixture
@@ -178,45 +126,6 @@ def test_config_file_roundtrip(tmp_path, monkeypatch):
     assert Settings.from_env().match_threshold == 0.6
 
 
-def test_router(fx):
-    eng, emb = fx
-    @asynccontextmanager
-    async def lifespan(app):
-        await eng.startup()
-        yield
-
-    app = FastAPI(lifespan=lifespan)
-    app.include_router(build_router(eng))
-
-    with TestClient(app) as c:
-        r = c.post("/faces/guests/42/enroll", files=[("photos", ("a.png", emb.png(1, [face(ALICE)]), "image/png"))])
-        assert r.status_code == 200 and r.json() == {"guest_id": "42", "vectors": 1}
-        r = c.post("/faces/guests/43/enroll", files=[("photos", ("b.png", emb.png(2, []), "image/png"))])
-        assert r.status_code == 422 and "no clear face" in r.json()["detail"]
-        assert c.get("/faces/guests").json() == {"42": 1}
-
-        r = c.post("/faces/identify", files={"photo": ("p.png", emb.png(3, [face(near(ALICE, 0.6))]), "image/png")})
-        assert r.json()[0]["guest_id"] == "42" and r.json()[0]["status"] == "match"
-
-        r = c.patch("/faces/config", json={"match_threshold": 0.65, "persist": False})
-        assert r.json()["match_threshold"] == 0.65
-        assert c.patch("/faces/config", json={"model_name": "x"}).json()["match_threshold"] == 0.65  # ignored field
-        assert c.patch("/faces/config", json={"review_threshold": 0.9}).status_code == 422
-
-        with c.websocket_connect("/faces/events") as ws:
-            assert ws.receive_json() == {"type": "presence", "guest_ids": [], "timestamp": pytest.approx(time.time(), abs=5)}
-            eng.process_frame(emb.scene(4, [face(ALICE)]))
-            msg = ws.receive_json()
-            assert msg["type"] == "guest_detected" and msg["guest_id"] == "42"
-            assert ws.receive_json()["guest_ids"] == ["42"]
-
-        st = c.get("/faces/status").json()
-        assert st["guests_enrolled"] == 1 and st["camera"]["running"] is False
-        assert c.get("/faces/camera/snapshot").status_code == 409
-        assert c.delete("/faces/guests/42").status_code == 200
-        assert c.delete("/faces/guests/42").status_code == 404
-
-
 def test_presence(fx):
     eng, emb = fx
     eng.settings.update({"presence_seconds": 0})
@@ -233,3 +142,114 @@ def test_presence(fx):
     eng.remove("alice")
     eng.process_frame(emb.scene(4, []))
     assert eng.presence()["guest_ids"] == []
+
+
+def test_enroll_rejects_undecodable_bytes_and_empty_photo_list(fx):
+    eng, _ = fx
+    with pytest.raises(EnrollmentError, match="photo 1: could not decode image"):
+        eng.enroll("x", [b"not an image"])
+    with pytest.raises(EnrollmentError, match="at least one photo"):
+        eng.enroll("x", [])
+    assert eng.gallery.size == 0
+
+
+def test_small_and_low_confidence_faces_are_ignored(fx):
+    eng, emb = fx
+    eng.enroll("alice", [emb.scene(1, [face(ALICE)])])
+    assert eng.identify(emb.scene(2, [face(ALICE, size=20)])) == []  # below min_face_px
+    assert eng.identify(emb.scene(3, [face(ALICE, score=0.5)])) == []  # below min_det_score
+    with pytest.raises(EnrollmentError, match="no clear face"):
+        eng.enroll("bob", [emb.scene(4, [face(BOB, size=20)])])
+
+
+def test_identify_with_empty_gallery_is_unknown(fx):
+    eng, emb = fx
+    [r] = eng.identify(emb.scene(1, [face(ALICE)]))
+    assert (r.status, r.guest_id, r.score) == ("unknown", None, -1.0)
+
+
+def test_enroll_without_replace_adds_photos(fx):
+    eng, emb = fx
+    eng.enroll("alice", [emb.scene(1, [face(ALICE)])])
+    assert eng.enroll("alice", [emb.scene(2, [face(near(ALICE, 0.8))])], replace=False) == 2
+    assert eng.enroll("alice", [emb.scene(1, [face(ALICE)])]) == 1  # replace is the default
+
+
+def test_identify_accepts_encoded_bytes(fx):
+    eng, emb = fx
+    eng.enroll("alice", [emb.png(1, [face(ALICE)])])
+    assert eng.identify(emb.png(2, [face(ALICE)]))[0].guest_id == "alice"
+
+
+def test_review_fires_an_event_but_not_presence(fx):
+    eng, emb = fx
+    events = []
+    eng.add_listener(events.append)
+    eng.enroll("alice", [emb.scene(1, [face(ALICE)])])
+    eng.process_frame(emb.scene(2, [face(near(ALICE, 0.4))]))
+    assert [(e.status, e.guest_id) for e in events] == [("review", "alice")]
+    assert eng.presence()["guest_ids"] == []
+
+
+def test_failing_listener_does_not_stop_others(fx):
+    eng, emb = fx
+    events = []
+
+    def broken(_):
+        raise RuntimeError("listener bug")
+
+    eng.add_listener(broken)
+    eng.add_listener(events.append)
+    eng.enroll("alice", [emb.scene(1, [face(ALICE)])])
+    eng.process_frame(emb.scene(2, [face(ALICE)]))
+    assert len(events) == 1
+
+
+def test_one_guest_matched_twice_in_a_frame_fires_once(fx):
+    eng, emb = fx
+    events = []
+    eng.add_listener(events.append)
+    eng.enroll("alice", [emb.scene(1, [face(ALICE)])])
+    eng.process_frame(emb.scene(2, [face(near(ALICE, 0.6)), face(near(ALICE, 0.9))]))
+    assert len(events) == 1 and events[0].score == pytest.approx(0.9, abs=1e-4)
+
+
+def test_reenrolling_resets_cooldown(fx):
+    eng, emb = fx
+    events = []
+    eng.add_listener(events.append)
+    eng.enroll("alice", [emb.scene(1, [face(ALICE)])])
+    eng.process_frame(emb.scene(2, [face(ALICE)]))
+    eng.process_frame(emb.scene(2, [face(ALICE)]))
+    assert len(events) == 1
+    eng.enroll("alice", [emb.scene(1, [face(ALICE)])])
+    eng.process_frame(emb.scene(2, [face(ALICE)]))
+    assert len(events) == 2
+
+
+def test_stop_camera_clears_presence(fx):
+    eng, emb = fx
+    eng.enroll("alice", [emb.scene(1, [face(ALICE)])])
+    eng.process_frame(emb.scene(2, [face(ALICE)]))
+    assert eng.presence()["guest_ids"] == ["alice"]
+    eng.stop_camera()  # no camera was ever started
+    assert eng.presence()["guest_ids"] == []
+
+
+def test_status(fx):
+    eng, emb = fx
+    eng.enroll("alice", [emb.scene(1, [face(ALICE)]), emb.scene(2, [face(near(ALICE, 0.9))])])
+    st = eng.status()
+    assert st["model_loaded"] is True
+    assert (st["guests_enrolled"], st["vectors"]) == (1, 2)
+    assert st["camera"] == {"running": False}
+    assert st["config"] == eng.settings.tunable()
+    assert st["gallery_fingerprint"] == eng.gallery.fingerprint()
+
+
+def test_numpy_frames_are_used_as_is(fx):
+    eng, emb = fx
+    frame = emb.scene(1, [face(ALICE)])
+    assert isinstance(frame, np.ndarray)
+    eng.enroll("alice", [frame])
+    assert eng.identify(frame)[0].status == "match"
