@@ -62,6 +62,17 @@ class TestDatabaseApi:
     # VALIDATE
     #
 
+    # Login validation happy path
+    def test_validate_good(self):
+        header = self._get_auth_header()
+
+        response = requests.post(self.url_base + "/validate", headers=header, verify=False)
+        assert response.status_code == 200
+
+        # Deletes generated token from database
+        response = requests.post(self.url_base + "/logout", headers=header, verify=False)
+        assert response.status_code == 200
+
     # Login validation when not logged in
     def test_validate_unauth(self):
         response = requests.post(self.url_base + "/validate", verify=False)
@@ -272,6 +283,17 @@ class TestDatabaseApi:
         # Deletes generated token from database
         response = requests.post(self.url_base + "/logout", headers=header, verify=False)
         assert response.status_code == 200
+
+    # Fetch bulk logs unauth
+    def test_log_fetchbulk_unauth(self):
+        body = {}
+
+        response = requests.post(
+            self.url_base + "/log/",
+            json=body,
+            verify=False
+        )
+        assert response.status_code == 401
 
     #
     # ENROLLMENT
@@ -609,41 +631,12 @@ class TestDatabaseApi:
         response = requests.post(self.url_base + "/logout", headers=header, verify=False)
         assert response.status_code == 200
 
-    # Compares the returned photo with a different photo
-    def test_user_photo_different(self):
+    # Tries to get the photo for a nonexistent user
+    def test_user_photo_dne(self):
         header = self._get_auth_header()
 
-        # Adds a sample user
-        response1 = None
-        with open("tests/test_images/2.jpeg", "rb") as image:
-            image_bytes = image.read()
-            image2_bytes = open("tests/test_images/3.jpeg", "rb").read()
-
-            data  = {
-                "first_name": "Test",
-                "last_name" : "User2",
-                "bio"       : "The second test user."
-            }
-            files = {
-                "file": ("2.jpeg", image_bytes, "image/jpeg")
-            }
-            response1 = requests.post(
-                self.url_base + "/enroll",
-                data=data,
-                files=files,
-                headers=header,
-                verify=False
-            )
-
-            json1 = response1.json()
-            added_user_id = json1["id"]
-
-            response2 = requests.get(self.url_base + f"/users/{added_user_id}/photo", headers=header, verify=False)
-            assert response2.content != image2_bytes
-
-            self._del_user(added_user_id)
-
-        assert response1.status_code == 200
+        response = requests.get(self.url_base + "/users/-1/photo", headers=header, verify=False)
+        assert response.status_code == 404
 
         # Deletes generated token from database
         response = requests.post(self.url_base + "/logout", headers=header, verify=False)
